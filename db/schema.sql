@@ -1,5 +1,5 @@
 -- =========================
--- Roles
+-- Roles 
 -- =========================
 CREATE TABLE Roles (
     role_id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -120,14 +120,18 @@ class MarketLoopMCPServer:
         self._active_tool_names = {getattr(tool, "name", tool.__name__) for tool in visible_tools}
         self._visible_tools = visible_tools
 
+    def _build_tool(self, tool: Callable[..., Any]) -> types.Tool:
+        name = getattr(tool, "name", tool.__name__)
+        description = tool.__doc__ or ""
+        return types.Tool(
+            name=name,
+            description=description,
+            input_schema={"type": "object", "properties": {}},
+        )
+
     async def _list_tools(self, _context: Any, _params: Any = None) -> types.ListToolsResult:
         self._refresh_visible_tools()
-        return types.ListToolsResult(
-            tools=[
-                types.Tool(name=getattr(tool, "name", tool.__name__), description=tool.__doc__ or "")
-                for tool in self._visible_tools
-            ]
-        )
+        return types.ListToolsResult(tools=[self._build_tool(tool) for tool in self._visible_tools])
 
     async def _call_tool(self, _context: Any, params: Any) -> types.CallToolResult:
         tool_name = params.name

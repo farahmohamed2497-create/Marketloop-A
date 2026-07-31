@@ -32,6 +32,14 @@ class MarketLoopMCPServerTests(unittest.TestCase):
         )
         self.assertEqual(server.list_prompts(), ["draft_return_response", "product_prompt"])
 
+    def test_list_tools_includes_input_schema(self) -> None:
+        server = MarketLoopMCPServer()
+        server.register_modules()
+        result = asyncio.run(server._list_tools(None))
+        self.assertTrue(result.tools)
+        schema_values = [getattr(tool, "inputSchema", getattr(tool, "input_schema", None)) for tool in result.tools]
+        self.assertTrue(all(schema is not None for schema in schema_values))
+
     def test_list_resources_exposes_policy_uris(self) -> None:
         server = MarketLoopMCPServer()
         server.register_modules()

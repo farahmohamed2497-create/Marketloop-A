@@ -1,0 +1,6 @@
+# Development and test dependencies for the MCP client
+pytest>=7.0
+black
+flake8
+mypy
+aiohttp

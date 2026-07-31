@@ -1,3 +1,49 @@
-marketloop.db
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.python-version
+venv/
 .env
-.vscode
+.env.*
+.venv/
+env/
+build/
+dist/
+eggs/
+*.egg-info/
+pip-wheel-metadata/
+*.egg
+.manifest
+*.manifest
+*.spec
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# macOS
+.DS_Store
+
+# Coverage and test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+
+# Distribution / packaging
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Others
+*.log
+*.sqlite3

@@ -28,8 +28,8 @@ import json
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
+from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
-from mcp.shared.context import RequestContext
 from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
@@ -47,20 +47,53 @@ SERVER_PARAMS = StdioServerParameters(
 )
 
 
+def _get_requested_schema(params: Any) -> dict[str, Any] | None:
+    schema = getattr(params, "requested_schema", None)
+    if schema is None:
+        schema = getattr(params, "requestedSchema", None)
+    if schema is None:
+        return None
+    if isinstance(schema, dict):
+        return schema
+    if hasattr(schema, "model_dump"):
+        return schema.model_dump(mode="json")
+    return {"schema": str(schema)}
+
+
+def _read_content_text(content: Any) -> str:
+    if isinstance(content, TextContent):
+        return content.text
+    if hasattr(content, "text"):
+        return str(content.text)
+    if hasattr(content, "blob"):
+        return str(content.blob)
+    if hasattr(content, "resource"):
+        resource = content.resource
+        if hasattr(resource, "text"):
+            return str(resource.text)
+        if hasattr(resource, "blob"):
+            return str(resource.blob)
+    if hasattr(content, "model_dump"):
+        return json.dumps(content.model_dump(mode="json"), indent=2)
+    return str(content)
+
+
 # ---------------------------------------------------------------------------
 # Elicitation: called mid-tool-call when the server needs a human decision
 # (e.g. approving a high-value return, confirming a controlled action).
 # ---------------------------------------------------------------------------
 async def elicitation_callback(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult:
     print("\n" + "=" * 60)
     print("  SERVER IS ASKING FOR HUMAN INPUT (elicitation/create)")
     print("=" * 60)
     print(f"Message : {params.message}")
-    if params.requestedSchema:
-        print(f"Expected fields: {json.dumps(params.requestedSchema, indent=2)}")
+
+    requested_schema = _get_requested_schema(params)
+    if requested_schema:
+        print(f"Expected fields: {json.dumps(requested_schema, indent=2)}")
 
     answer = input("\nApprove this action? [y/n]: ").strip().lower()
     if answer != "y":
@@ -68,9 +101,13 @@ async def elicitation_callback(
 
     # If the server asked for structured data, collect it field by field.
     content: dict[str, Any] = {}
-    schema = params.requestedSchema or {}
-    for field_name, field_def in schema.get("properties", {}).items():
-        value = input(f"  {field_name} ({field_def.get('description', '')}): ")
+    schema = requested_schema or {}
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else getattr(schema, "properties", {})
+    for field_name, field_def in properties.items():
+        description = ""
+        if isinstance(field_def, dict):
+            description = field_def.get("description", "")
+        value = input(f"  {field_name} ({description}): ")
         content[field_name] = value
 
     return ElicitResult(action="accept", content=content or None)
@@ -82,15 +119,20 @@ async def elicitation_callback(
 # ---------------------------------------------------------------------------
 async def message_handler(message: Any) -> None:
     # Progress updates for long-running tools (report generation, etc.)
-    if isinstance(message, ProgressNotification):
-        params = message.root.params if hasattr(message, "root") else message.params
-        pct = f"{params.progress}/{params.total}" if params.total else str(params.progress)
+    notification = getattr(message, "root", message)
+    if isinstance(notification, ProgressNotification):
+        params = getattr(notification, "params", None)
+        if params is None:
+            return
+        progress = getattr(params, "progress", 0)
+        total = getattr(params, "total", None)
+        pct = f"{progress}/{total}" if total else str(progress)
         label = getattr(params, "message", "") or ""
         print(f"  [progress] {pct}  {label}")
         return
 
     # Generic notification dispatch — catch tools/list_changed specifically.
-    method = getattr(getattr(message, "root", message), "method", None)
+    method = getattr(notification, "method", None)
     if method == "notifications/tools/list_changed":
         print("\n>>> [notification] tools/list_changed received — refreshing tool list...")
         # The caller re-fetches tools right after this fires; see main loop.
@@ -102,13 +144,18 @@ async def message_handler(message: Any) -> None:
 async def print_capabilities(session: ClientSession) -> dict[str, Any]:
     init_result = await session.initialize()
     caps = init_result.capabilities
+    tools_caps = getattr(caps, "tools", None)
+    resources_caps = getattr(caps, "resources", None)
+    prompts_caps = getattr(caps, "prompts", None)
+    logging_caps = getattr(caps, "logging", None)
+
     print("Server capabilities declared in initialize():")
-    print(f"  tools     : {caps.tools}")
-    print(f"  resources : {caps.resources}")
-    print(f"  prompts   : {caps.prompts}")
-    print(f"  logging   : {caps.logging}")
+    print(f"  tools     : {tools_caps}")
+    print(f"  resources : {resources_caps}")
+    print(f"  prompts   : {prompts_caps}")
+    print(f"  logging   : {logging_caps}")
     return {
-        "tools_list_changed": bool(caps.tools and caps.tools.listChanged),
+        "tools_list_changed": bool(getattr(tools_caps, "list_changed", None)),
         "elicitation": True,  # negotiated via client capabilities, not shown in server payload
     }
 
@@ -164,24 +211,35 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
                 print("  (note: server did NOT declare tools.listChanged=True — "
                       "notifications may not be relied on here)")
 
-            result = await session.call_tool(name, arguments)
+            try:
+                result = await session.call_tool(name, arguments)
+            except Exception as exc:
+                print(f"\nERROR calling tool: {exc}")
+                continue
             for block in result.content:
-                if isinstance(block, TextContent):
-                    print(f"\nResult:\n{block.text}")
+                print(f"\nResult:\n{_read_content_text(block)}")
 
         elif choice == "2":
             uri = input("Resource URI (e.g. resource://return_policy): ").strip()
-            result = await session.read_resource(uri)
+            try:
+                result = await session.read_resource(uri)
+            except Exception as exc:
+                print(f"\nERROR reading resource: {exc}")
+                continue
             for content in result.contents:
-                print(f"\n{content.text}")
+                print(f"\n{_read_content_text(content)}")
 
         elif choice == "3":
             name = input("Prompt name: ").strip()
             raw_args = input("Arguments as JSON or blank: ").strip()
             arguments = json.loads(raw_args) if raw_args else {}
-            result = await session.get_prompt(name, arguments)
+            try:
+                result = await session.get_prompt(name, arguments)
+            except Exception as exc:
+                print(f"\nERROR fetching prompt: {exc}")
+                continue
             for msg in result.messages:
-                print(f"\n[{msg.role}] {msg.content.text}")
+                print(f"\n[{msg.role}] {_read_content_text(msg.content)}")
 
         elif choice == "4":
             break

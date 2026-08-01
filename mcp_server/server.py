@@ -5,17 +5,27 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import logging
 import pkgutil
+import warnings
 from types import ModuleType
 from typing import Any, Callable
 
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 from .config import get_database_path, get_transport
 from .db import get_connection
 from .tools.session import SessionContext, switch_active_user_role
+
+# The SDK deprecates the logging/sampling capabilities the assignment requires,
+# and the dispatcher logs full tracebacks for expected tool rejections. Quiet
+# both so live demos and agent output stay clean; errors still reach the client.
+warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
+logging.getLogger("mcp.shared.jsonrpc_dispatcher").setLevel(logging.CRITICAL)
+logging.getLogger("mcp.server.runner").setLevel(logging.CRITICAL)
 
 
 class MarketLoopMCPServer:
@@ -144,7 +154,9 @@ class MarketLoopMCPServer:
         for tool in self._visible_tools:
             if getattr(tool, "name", tool.__name__) == tool_name:
                 meta = getattr(params, "meta", None)
-                progress_token = meta.get("progressToken") if isinstance(meta, dict) else None
+                progress_token = None
+                if isinstance(meta, dict):
+                    progress_token = meta.get("progressToken", meta.get("progress_token"))
                 tool_context = type(
                     "Context",
                     (),
@@ -156,12 +168,26 @@ class MarketLoopMCPServer:
                 )()
                 if tool_name in {"generate_sales_audit_report", "process_return_request", "generate_delay_apology"}:
                     result = await tool(payload, context=tool_context)
+                elif tool_name == "switch_active_user_role" and isinstance(payload, dict):
+                    result = tool(payload.get("user_id"), session_context=self._session_context)
                 elif payload is None:
                     result = tool()
                 else:
                     result = tool(payload)
                 if inspect.isawaitable(result):
                     result = await result
+
+                # Role switches mutate the visible tool set at runtime. Refresh it
+                # and push tools/list_changed so clients re-discover the tools
+                # instead of polling or guessing.
+                if tool_name == "switch_active_user_role":
+                    previous_names = set(self._active_tool_names)
+                    self._refresh_visible_tools()
+                    if self._active_tool_names != previous_names:
+                        session = getattr(_context, "session", None)
+                        if session is not None and hasattr(session, "send_tool_list_changed"):
+                            await session.send_tool_list_changed()
+
                 return types.CallToolResult(content=[types.TextContent(type="text", text=str(result))])
         raise ValueError(f"Unknown tool: {tool_name}")
 

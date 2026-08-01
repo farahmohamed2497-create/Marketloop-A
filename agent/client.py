@@ -1,8 +1,9 @@
 """
 MarketLoop MCP client (agent).
 
-Connects to mcp_server/server.py over stdio and demonstrates every protocol
-concern required by the assignment:
+Connects to mcp_server/server.py over stdio (local dev) or Streamable HTTP
+(remote deployment) and demonstrates every protocol concern required by the
+assignment:
 
   - Capability negotiation : checks the server's declared capabilities from
                               initialize() before relying on them.
@@ -10,12 +11,18 @@ concern required by the assignment:
                               server when a user's role changes.
   - Elicitation            : answers elicitation/create requests from the
                               server (e.g. sign-off on a return/refund).
+  - Sampling               : answers sampling/createMessage requests from the
+                              server (e.g. generating a delay apology email).
   - Resources              : lists + reads resources (policy docs, reports).
   - Prompts                : lists + fetches parameterized prompt templates.
   - Progress tracking      : shows live progress for long-running tools.
+  - Transport (Both)       : stdio for development, Streamable HTTP for
+                              remote deployment.
 
 Run with:
-    python agent/client.py
+    python agent/client.py                      # stdio (default)
+    python agent/client.py --transport http     # Streamable HTTP
+    python agent/client.py --server-url http://localhost:8000/mcp
 (from the repo root, with the mcp_server package importable, i.e. run
  `pip install -e .` first or run from a directory where `mcp_server` is on
  the Python path)
@@ -23,14 +30,19 @@ Run with:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import os
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import (
+    CreateMessageRequestParams,
+    CreateMessageResult,
     ElicitRequestParams,
     ElicitResult,
     ProgressNotification,
@@ -111,6 +123,38 @@ async def elicitation_callback(
         content[field_name] = value
 
     return ElicitResult(action="accept", content=content or None)
+
+
+# ---------------------------------------------------------------------------
+# Sampling: called when the server requests an LLM generation
+# (e.g. generating a personalized apology email with sampling/createMessage).
+# ---------------------------------------------------------------------------
+async def sampling_callback(
+    context: ClientRequestContext,
+    params: CreateMessageRequestParams,
+) -> CreateMessageResult:
+    print("\n" + "=" * 60)
+    print("  SERVER IS REQUESTING LLM SAMPLING (sampling/createMessage)")
+    print("=" * 60)
+    system_prompt = getattr(params, "systemPrompt", None) or getattr(params, "system_prompt", "") or ""
+    print(f"System Prompt: {system_prompt}")
+
+    # Extract messages from parameters
+    prompt_text = ""
+    for msg in getattr(params, "messages", []):
+        content = getattr(msg, "content", None)
+        prompt_text += f"\n[{getattr(msg, 'role', 'user')}]: {_read_content_text(content)}"
+    print(f"Messages:\n{prompt_text}")
+
+    # Generate output (using a lightweight mock/fallback or local LLM call)
+    reply = "Dear Customer, we apologize for the order delay. Your item is on its way."
+
+    return CreateMessageResult(
+        role="assistant",
+        content=TextContent(type="text", text=reply),
+        model="mock-client-llm",
+        stop_reason="endTurn",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,15 +292,43 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
 
 
 async def main() -> None:
-    async with stdio_client(SERVER_PARAMS) as (read, write):
+    parser = argparse.ArgumentParser(description="MarketLoop MCP agent client")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default=os.getenv("MARKETLOOP_TRANSPORT", "stdio"),
+        help="Transport to the server (default: stdio)",
+    )
+    parser.add_argument(
+        "--server-url",
+        default=os.getenv("MARKETLOOP_SERVER_URL", "http://localhost:8000/mcp"),
+        help="Streamable HTTP endpoint (used with --transport http)",
+    )
+    args = parser.parse_args()
+
+    async def _run_session(read: Any, write: Any) -> None:
         async with ClientSession(
             read,
             write,
             elicitation_callback=elicitation_callback,
+            sampling_callback=sampling_callback,
             message_handler=message_handler,
         ) as session:
             capability_flags = await print_capabilities(session)
             await interactive_loop(session, capability_flags)
+
+    if args.transport == "http":
+        print(f"Connecting to MarketLoop server over Streamable HTTP: {args.server_url}")
+        try:
+            async with streamable_http_client(args.server_url) as (read, write):
+                await _run_session(read, write)
+        except Exception as exc:
+            print(f"\nCould not reach the MarketLoop server at {args.server_url}: {exc}")
+            print("Start the server in Streamable HTTP mode first, or use --transport stdio.")
+    else:
+        print("Connecting to MarketLoop server over stdio")
+        async with stdio_client(SERVER_PARAMS) as (read, write):
+            await _run_session(read, write)
 
 
 if __name__ == "__main__":

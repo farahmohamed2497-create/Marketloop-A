@@ -24,3 +24,10 @@ class ObservationMasker:
                 result.append(msg)
 
         return result
+
+
+def mask_tool_outputs(messages, keep_last_outputs=3):
+    masker = ObservationMasker(
+        keep_last_outputs=keep_last_outputs
+    )
+    return masker.apply(messages)

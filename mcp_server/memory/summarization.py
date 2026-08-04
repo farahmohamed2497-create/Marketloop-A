@@ -9,8 +9,14 @@ class RecursiveSummarizer:
         older = messages[:-self.threshold]
         recent = messages[-self.threshold:]
 
-        summary_text = (
-            f"Summary of {len(older)} previous messages"
+        important = []
+
+        for msg in older:
+            if msg["role"] == "user":
+                important.append(msg["content"])
+
+        summary_text = " | ".join(
+            important[:8]
         )
 
         return [

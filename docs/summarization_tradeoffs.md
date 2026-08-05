@@ -1,62 +1,62 @@
-# Long Context Management Strategies Benchmark
-
-## 1. Overview
-
-This project evaluates three strategies for managing long-context information:
-
-* Rolling Buffer
-* Observation Masking
-* Recursive Summarization
-
-The evaluation is based on three metrics:
-
-* Recall Accuracy
-* Token Usage
-* Execution Latency
-
----
-
-## 2. Implemented Strategies
-
-### Rolling Buffer
-
-Maintains a fixed-size memory window containing recent observations.
-Although efficient in memory usage, it may remove older important information.
-
-### Observation Masking
-
-Selectively retains relevant observations while reducing unnecessary context.
-It aims to improve both accuracy and token efficiency.
-
-### Recursive Summarization
-
-Compresses previous observations into shorter summaries to handle large contexts.
-However, summarization may introduce information loss.
-
----
-
-## 3. Benchmark Results
-
-| Strategy                | Accuracy | Tokens | Latency   |
-| ----------------------- | -------- | ------ | --------- |
-| Rolling Buffer          | 5/10     | 30     | 0.000063s |
-| Observation Masking     | 10/10    | 13     | 0.000046s |
-| Recursive Summarization | 8/10     | 34     | 0.000020s |
-
-**Note:** Latency values were measured using a local Python implementation and represent function execution time only. They do not reflect the response latency of a real LLM API.
-
----
-
-## 4. Results Analysis
-
-Observation Masking achieved the highest recall accuracy (10/10) while using the smallest context size (13 tokens).
-
-Recursive Summarization reduced context size effectively but caused some information loss, achieving 8/10 accuracy.
-
-Rolling Buffer achieved the lowest accuracy (5/10) due to the removal of older observations from the memory window.
-
----
-
-## 5. Final Recommendation
-
-Based on the benchmark results, Observation Masking was selected as the preferred strategy for this workload because it provides the best balance between accuracy and context efficiency.
+# Context Window Management — Comparison
+ 
+## 1. The problem
+A MarketLoop support call to process a return can involve 30+ tool calls
+(order lookup, shipment tracking, inventory checks, fee lookups) after the
+customer states their return reason in the first message. Per MarketLoop's
+return policy, the reason (damaged / wrong item vs. changed their mind)
+decides whether a 15% restocking fee applies. If a context-pruning
+strategy loses that detail, the agent risks charging a customer for
+damage that wasn't their fault.
+ 
+## 2. Test suite
+`context_eval/scenario.py` builds 12 fixed transcripts: 4 return-reason
+types x 3 variations each, ~35 randomized tool-call turns between the
+reason and the final question "should a restocking fee apply?". The
+suite is fixed once evaluation starts, per the lab's guardrail.
+ 
+Metric: does the exact return reason survive in what's left of the
+transcript after each strategy runs? (`context_eval/scenario.reason_survived`)
+ 
+## 3. Results
+ 
+Produced by `context_eval/comparison_harness.py`:
+ 
+| Strategy | Accuracy | Avg tokens/run | Avg latency (ms) |
+|---|---|---|---|
+| Sliding window (last 10 turns) | 0/12 | 45.0 | 0.009 |
+| Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.018 |
+| Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.012 |
+| Zone-based pruning | pending (teammate's task) | - | - |
+ 
+### Methodology
+- **Accuracy**: does the exact return reason string survive in the
+  strategy's output for that test case? Binary per case, out of 12.
+- **Avg tokens/run**: word count of the remaining transcript
+  (`len(content.split())` summed across messages), not a model-specific
+  tokenizer count. Used as a consistent, cheap proxy for context size
+  across strategies - the *relative* ordering between strategies is what
+  matters for the comparison, not the absolute token count a real LLM
+  API would report.
+- **Avg latency (ms)**: wall-clock time to run the pruning function
+  itself in Python (no LLM call involved in any of the three
+  strategies - recursive summarization here is rule-based extraction of
+  user-stated facts, not an LLM summarization call). This measures the
+  strategy's own compute cost, not end-to-end response latency with an
+  LLM in the loop - that's why the numbers are sub-millisecond.
+## 4. Analysis
+- **Sliding window fails completely (0/12)**: it truncates uniformly by
+  position, so any detail stated more than 10 turns before the final
+  question is gone - the exact shape of a real MarketLoop call.
+- **Observation masking wins on tokens** (32.8 avg): it targets the
+  actual bloat source (tool output), leaving dialogue - where the return
+  reason lives - untouched.
+- **Recursive summarization matches masking on accuracy** but costs
+  ~90% more tokens, because it keeps the last 10 raw turns *in addition
+  to* the summary, rather than aggressively dropping tool noise.
+## 5. Recommendation (provisional, pending zone-based results)
+**Observation masking** is the current leading candidate: it's the only
+strategy that both preserves the return reason and does so at the lowest
+token cost, because MarketLoop's bloat is tool-call noise, not dialogue
+length. Final ranking will be confirmed once zone-based pruning numbers
+are added to this table by the teammate covering that strategy.

@@ -4,7 +4,7 @@ from benchmarks.token_counter import count_tokens
 from mcp_server.memory.masking import mask_tool_outputs
 from mcp_server.memory.rolling_buffer import RollingBuffer
 from mcp_server.memory.summarization import RecursiveSummarizer
-
+from mcp_server.memory.zone_pruning import zone_prune
 messages = [{
     "role": "user",
     "content": "Customer allergy is peanuts"
@@ -78,3 +78,12 @@ print(
     "Recursive Summarization Tokens:",
     count_tokens(summary)
 )
+
+
+start = time.perf_counter()
+zoned = zone_prune(messages, head_size=2, tail_size=10, middle_keep_ratio=0.2)
+elapsed = time.perf_counter() - start
+
+print("Zone-based Pruning", len(str(zoned).split()), elapsed)
+print("Zone-based Pruning recalled allergy:", "peanuts" in str(zoned))
+print("Zone-based Pruning Tokens:", count_tokens(zoned))

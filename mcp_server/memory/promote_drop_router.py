@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .episodic_store import EpisodicMemory, EpisodicStore
+
 # Patterns that make a user-stated fact worth remembering past this
 # session. Kept narrow and MarketLoop-specific on purpose: a router that
 # promotes everything "just in case" isn't actually making a decision.
@@ -60,11 +62,10 @@ class RoutingDecision:
 
 class PromoteDropRouter:
     def __init__(self) -> None:
-        # episodic store lives here only because this router is what
-        # writes to it - the consolidation layer (topic 10, teammate's
-        # task) reads from this same list, it does not belong to this
-        # router's decision logic.
-        self.episodic_store: list[RoutingDecision] = []
+        # Shared episodic store used by the consolidation layer.
+        self.episodic_store = EpisodicStore()
+
+        # Log kept only for grading/debugging.
         self.decision_log: list[RoutingDecision] = []
 
     def _decide(self, item: dict[str, Any]) -> RoutingDecision:
@@ -116,21 +117,38 @@ class PromoteDropRouter:
             ),
         )
 
-    def route(self, aging_items: list[dict[str, Any]]) -> list[RoutingDecision]:
-        """Called with the item(s) about to be evicted from the rolling
-        buffer. Returns the decision for each, and appends PROMOTE
-        decisions to episodic_store as a side effect."""
-        decisions = []
+    def route(
+        self,
+        aging_items: list[dict[str, Any]],
+    ) -> list[RoutingDecision]:
+        """
+        Called with the item(s) about to be evicted from the rolling
+        buffer. Returns the decision for each, and stores PROMOTE
+        decisions in the episodic store.
+        """
+        decisions: list[RoutingDecision] = []
+
         for item in aging_items:
             decision = self._decide(item)
+
             self.decision_log.append(decision)
+
             if decision.decision == "promote":
-                self.episodic_store.append(decision)
+                self.episodic_store.add(
+                    EpisodicMemory(
+                        content=decision.content,
+                        role=decision.role,
+                        reasoning=decision.reasoning,
+                        timestamp=decision.timestamp,
+                    )
+                )
+
             decisions.append(decision)
+
         return decisions
 
     def get_reasoning_log(self) -> list[dict[str, str]]:
-        """Grader-visible log of every decision made and why."""
+        """Grader-visible log of every routing decision."""
         return [
             {
                 "content": d.content,

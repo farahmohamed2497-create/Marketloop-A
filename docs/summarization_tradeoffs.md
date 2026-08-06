@@ -20,14 +20,14 @@ transcript after each strategy runs? (`context_eval/scenario.reason_survived`)
  
 ## 3. Results
  
-Produced by `context_eval/comparison_harness.py`:
+Produced by `context_eval/comparison_harness.py`, all four required strategies:
  
 | Strategy | Accuracy | Avg tokens/run | Avg latency (ms) |
 |---|---|---|---|
-| Sliding window (last 10 turns) | 0/12 | 45.0 | 0.009 |
-| Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.018 |
-| Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.012 |
-| Zone-based pruning | pending (teammate's task) | - | - |
+| Sliding window (last 10 turns) | 0/12 | 45.0 | 0.007 |
+| Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.008 |
+| Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.009 |
+| Zone-based pruning (head=2, tail=10, middle=20%) | 12/12 | 80.8 | 0.009 |
  
 ### Methodology
 - **Accuracy**: does the exact return reason string survive in the
@@ -39,7 +39,7 @@ Produced by `context_eval/comparison_harness.py`:
   matters for the comparison, not the absolute token count a real LLM
   API would report.
 - **Avg latency (ms)**: wall-clock time to run the pruning function
-  itself in Python (no LLM call involved in any of the three
+  itself in Python (no LLM call involved in any of the four
   strategies - recursive summarization here is rule-based extraction of
   user-stated facts, not an LLM summarization call). This measures the
   strategy's own compute cost, not end-to-end response latency with an
@@ -48,15 +48,24 @@ Produced by `context_eval/comparison_harness.py`:
 - **Sliding window fails completely (0/12)**: it truncates uniformly by
   position, so any detail stated more than 10 turns before the final
   question is gone - the exact shape of a real MarketLoop call.
-- **Observation masking wins on tokens** (32.8 avg): it targets the
-  actual bloat source (tool output), leaving dialogue - where the return
-  reason lives - untouched.
+- **Observation masking wins on tokens** (32.8 avg) while keeping full
+  accuracy: it targets the actual bloat source (tool output), leaving
+  dialogue - where the return reason lives - untouched.
 - **Recursive summarization matches masking on accuracy** but costs
   ~90% more tokens, because it keeps the last 10 raw turns *in addition
   to* the summary, rather than aggressively dropping tool noise.
-## 5. Recommendation (provisional, pending zone-based results)
-**Observation masking** is the current leading candidate: it's the only
-strategy that both preserves the return reason and does so at the lowest
-token cost, because MarketLoop's bloat is tool-call noise, not dialogue
-length. Final ranking will be confirmed once zone-based pruning numbers
-are added to this table by the teammate covering that strategy.
+- **Zone-based pruning also reaches full accuracy** (its fixed head
+  window happens to always capture the return reason in this scenario,
+  since it's stated in the first message), but it's the most expensive
+  strategy here (80.8 avg tokens) - it keeps a head, a tail, *and* a
+  sampled slice of the middle, which adds up even after dropping most of
+  the tool noise.
+## 5. Recommendation
+**Observation masking** is the strategy MarketLoop ships with: it's the
+only one that combines full accuracy with the lowest token cost, because
+MarketLoop's bloat is tool-call noise, not dialogue length - masking
+targets exactly that. Zone-based pruning is a reasonable fallback if a
+future scenario buries the critical detail mid-conversation rather than
+at the start (where a fixed head window wouldn't catch it), but for
+MarketLoop's actual call shape today, masking is strictly better on both
+metrics that matter.

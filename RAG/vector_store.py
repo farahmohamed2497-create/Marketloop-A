@@ -1,3 +1,5 @@
+def data(self):
+        return self._data
 import uuid
 import pickle
 import os

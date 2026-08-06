@@ -1,60 +1,26 @@
-from RAG.vector_store import MetadataIndex
+from collections import defaultdict
 
 
-def test_single_filter():
-    idx = MetadataIndex()
+class MetadataIndex:
+    def __init__(self):
+        self.index = defaultdict(set)
 
-    idx.add("1", {"category": "electronics"})
-    idx.add("2", {"category": "fashion"})
+    def add(self, doc_id, metadata):
+        for key, value in metadata.items():
+            self.index[(key, value)].add(doc_id)
 
-    result = idx.filter_ids({"category": "electronics"})
+    def filter_ids(self, filters):
+        if not filters:
+            return None
 
-    assert result == {"1"}
+        results = []
 
-
-def test_multiple_filters():
-    idx = MetadataIndex()
-
-    idx.add("1", {
-        "category": "electronics",
-        "brand": "sony"
-    })
-
-    idx.add("2", {
-        "category": "electronics",
-        "brand": "samsung"
-    })
-
-    result = idx.filter_ids({
-        "category": "electronics",
-        "brand": "sony"
-    })
-
-    assert result == {"1"}
-
-
-def test_no_match():
-    idx = MetadataIndex()
-
-    idx.add("1", {"category": "electronics"})
-
-    result = idx.filter_ids({"category": "fashion"})
-
-    assert result == set()
-
-    if __name__ == "__main__":
-        idx = MetadataIndex()
-
-        idx.add(
-            1,
-            {
-                "category": "laptop",
-                "brand": "dell"
-            }
-        )
-
-        print(
-            idx.filter_ids(
-                {"category": "laptop"}
+        for key, value in filters.items():
+            results.append(
+                self.index.get((key, value), set())
             )
-        )
+
+        if not results:
+            return set()
+
+        return set.intersection(*results)

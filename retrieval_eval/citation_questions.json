@@ -1,0 +1,14 @@
+[
+  {
+    "question": "What warranty does the gaming laptop include?",
+    "answer_contains": "warranty"
+  },
+  {
+    "question": "Which product offers free shipping?",
+    "answer_contains": "free shipping"
+  },
+  {
+    "question": "What accessories are included with the smartphone?",
+    "answer_contains": "accessories"
+  }
+]

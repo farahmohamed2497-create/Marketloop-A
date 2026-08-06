@@ -1,0 +1,290 @@
+2.1 Category: Electronics
+SKU: ELEC-001 | UltraView 4K Smart TV (55-inch)
+
+Full Description: High-definition smart television featuring vivid HDR10+ visual enhancement, built-in streaming applications, voice control integration, and three high-speed HDMI 2.1 ports for next-gen media consumption.
+
+Unit Price: $499.99
+
+Inventory Status: In Stock (120 units available at Central Warehouse A)
+
+Manufacturer Warranty: 2-Year Comprehensive Manufacturer Warranty covering hardware malfunctions and display defects.
+
+Return Eligibility: Subject to a mandatory 15% restocking fee if unsealed or opened by the customer.
+
+SKU: ELEC-002 | Apex Pro Wireless Noise-Canceling Headphones
+
+Description: Over-ear active noise-canceling headphones engineered with custom acoustic drivers, a 40-hour continuous playback battery life, and ultra-low latency Bluetooth 5.3 connectivity.
+
+Price: $199.99
+
+Inventory Status: Low Stock (15 units remaining in regional hubs)
+
+Manufacturer Warranty: 1-Year Limited Hardware Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if unsealed.
+
+SKU: ELEC-003 | Nexus UltraBook 14 (16GB RAM, 512GB SSD)
+
+Description: Lightweight, high-performance laptop powered by an advanced octa-core processor, featuring a retina-grade 14-inch display, backlit keyboard, and all-day battery endurance.
+
+Price: $899.99
+
+Inventory Status: In Stock (45 units available)
+
+Manufacturer Warranty: 2-Year International Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if opened; must include original charger and packaging.
+
+SKU: ELEC-004 | Quantum Pods True Wireless Earbuds
+
+Description: Ergonomic earbuds equipped with spatial audio support, IPX5 water resistance, and a wireless charging case providing up to 24 hours of total listening time.
+
+Price: $89.99
+
+InventoryStatus: In Stock (300+ units available)
+
+Manufacturer Warranty: 1-Year Replacement Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if unsealed due to hygiene regulations.
+
+SKU: ELEC-005 | SparkleBeam Portable Bluetooth Speaker
+
+Description: Rugged, waterproof outdoor speaker delivering 360-degree stereo sound, deep bass boost, and integrated multi-color LED rhythm lighting.
+
+Price: $59.99
+
+Inventory Status: In Stock (150 units available)
+
+Manufacturer Warranty: 1-Year Limited Warranty.
+
+Return Eligibility: Fully returnable within 30 days if unopened; 15% fee if opened.
+
+2.2 Category: Fashion Items
+SKU: FASH-101 | UrbanStride Classic Leather Jacket
+
+Description: Genuine premium lambskin leather jacket designed for all-season wear, featuring heavy-duty brass zippers, quilted interior lining, and available in multiple sizes from S to XXL.
+
+Price: $149.99
+
+Inventory Status: In Stock (85 units distributed across various size variants)
+
+Manufacturer Warranty: 1-Year Craftsmanship Guarantee against stitching or hardware failure.
+
+Return Eligibility: Eligible for free return or size exchange within 30 days if unworn with original tags attached. No restocking fee.
+
+SKU: FASH-102 | AeroFlex Breathable Running Shoes
+
+Description: Lightweight athletic footwear engineered with adaptive mesh technology, shock-absorbing foam midsoles, and high-traction rubber outsoles for high-performance running and daily training.
+
+Price: $89.99
+
+Inventory Status: In Stock (210 units across full size run)
+
+Manufacturer Warranty: 6-Month Sole Integrity Warranty.
+
+Return Eligibility: Eligible for size exchange or return within 30 days in clean, unworn condition. No restocking fee.
+
+SKU: FASH-103 | Meridian Wool Blend Winter Overcoat
+
+Description: Elegant, tailored long coat crafted from a warm wool and cashmere blend, featuring notched lapels, deep side pockets, and a sleek button closure.
+
+Price: $179.99
+
+Inventory Status: In Stock (50 units available)
+
+Manufacturer Warranty: 1-Year Fabric Quality Warranty.
+
+Return Eligibility: Eligible for return or exchange within 30 days if unworn with tags attached. No restocking fee.
+
+SKU: FASH-104 | Nomad Canvas Everyday Backpack
+
+Description: Durable water-resistant canvas backpack equipped with a dedicated 15.6-inch laptop compartment, ergonomic padded shoulder straps, and secure magnetic buckles.
+
+Price: $64.99
+
+Inventory Status: In Stock (180 units available)
+
+Manufacturer Warranty: 2-Year Limited Stitching Warranty.
+
+Return Eligibility: Fully returnable within 30 days if unused. No restocking fee.
+
+SKU: FASH-105 | Spectra Polarized Sunglasses
+
+Description: Classic aviator-style sunglasses with UV400 protection, anti-glare polarized lenses, and a corrosion-resistant lightweight metal frame.
+
+Price: $45.99
+
+Inventory Status: In Stock (240 units available)
+
+Manufacturer Warranty: 1-Year Scratch Resistance and Frame Warranty.
+
+Return Eligibility: Fully returnable within 30 days in original case. No restocking fee.
+
+2.3 Category: Home Appliances
+SKU: HOME-201 | BrewMaster Digital Espresso Machine
+
+Description: Professional-grade 15-bar pump espresso maker featuring an integrated stainless steel conical burr grinder, manual milk frothing steam wand, and an intuitive digital touch display.
+
+Price: $299.99
+
+Inventory Status: In Stock (45 units available at Central Warehouse)
+
+Manufacturer Warranty: 2-Year Full Replacement Warranty for mechanical and electrical components.
+
+Return Eligibility: Subject to a 15% restocking fee if opened or unsealed due to food safety and sanitation guidelines.
+
+SKU: HOME-202 | CleanBot Robotic Vacuum & Mop
+
+Description: Intelligent smart-mapping robotic cleaning device equipped with LiDAR navigation, automatic dust collection base station, and companion mobile app scheduling integration.
+
+Price: $349.99
+
+Inventory Status: Out of Stock (Restock scheduled in 10 business days)
+
+Manufacturer Warranty: 2-Year Limited Hardware Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if opened.
+
+SKU: HOME-203 | AeroChef Air Fryer Pro (6-Quart)
+
+Description: Rapid air circulation cooking appliance featuring digital presets, non-stick dishwasher-safe basket, adjustable temperature control up to 400°F, and a sleek matte finish.
+
+Price: $129.99
+
+Inventory Status: In Stock (95 units available)
+
+Manufacturer Warranty: 1-Year Replacement Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if unsealed.
+
+SKU: HOME-204 | PureAir HEPA Tower Air Purifier
+
+Description: Three-stage filtration air cleaner featuring a True HEPA filter, activated carbon odor trap, quiet sleep mode, and real-time air quality LED indicator ring.
+
+Price: $159.99
+
+Inventory Status: In Stock (70 units available)
+
+Manufacturer Warranty: 2-Year Motor and Filter Housing Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if unsealed.
+
+SKU: HOME-205 | ThermoGlow Smart Ceramic Space Heater
+
+Description: Energy-efficient oscillating tower heater with digital thermostat control, tip-over safety shutoff, remote control, and overheat protection.
+
+Price: $79.99
+
+Inventory Status: In Stock (110 units available)
+
+Manufacturer Warranty: 1-Year Safety and Electrical Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee if opened.
+
+2.4 Category: Sports Equipment
+SKU: SPOR-301 | TitanCore Adjustable Dumbbell Set (Up to 25kg)
+
+Description: Space-saving adjustable dumbbell system featuring a rapid dial-to-select weight adjustment mechanism, eliminating the need for multiple fixed-weight dumbbells.
+
+Price: $229.99
+
+Inventory Status: In Stock (60 units available)
+
+Manufacturer Warranty: 3-Year Structural Integrity Warranty.
+
+Return Eligibility: Subject to a mandatory 15% restocking fee due to specialized heavy freight handling and logistical safety rules.
+
+SKU: SPOR-302 | FlexFit Pro Resistance Bands Kit
+
+Description: Comprehensive set of 5 stackable natural latex resistance bands complete with secure door anchor, comfort foam handles, ankle straps, and a portable carry bag.
+
+Price: $29.99
+
+Inventory Status: In Stock (500+ units available)
+
+Manufacturer Warranty: 1-Year Snap-Resistance Guarantee.
+
+Return Eligibility: Fully returnable within 30 days in original packaging. No restocking fee.
+
+SKU: SPOR-303 | ApexStride Folding Treadmill
+
+Description: Heavy-duty motorized folding treadmill featuring a cushioned running deck, heart rate grip sensors, preset interval programs, and a maximum speed of 16 km/h.
+
+Price: $599.99
+
+Inventory Status: Low Stock (8 units remaining)
+
+Manufacturer Warranty: 5-Year Frame Warranty, 2-Year Motor Warranty.
+
+Return Eligibility: Subject to a 15% restocking fee and freight return shipping inspection.
+
+SKU: SPOR-304 | HydroFlex Insulated Stainless Steel Water Bottle (1L)
+
+Description: Double-wall vacuum insulated water bottle designed to keep beverages icy cold for up to 24 hours or steaming hot for 12 hours, featuring a leakproof straw lid.
+
+Price: $34.99
+
+Inventory Status: In Stock (350+ units available)
+
+Manufacturer Warranty: Lifetime Thermal Insulation Warranty.
+
+Return Eligibility: Fully returnable within 30 days if unused. No restocking fee.
+
+SKU: SPOR-305 | ZenBalance Cork Yoga Mat
+
+Description: Eco-friendly non-slip yoga mat made from sustainable natural cork and dense TPE backing, offering superior grip during intense yoga and pilates sessions.
+
+Price: $49.99
+
+Inventory Status: In Stock (130 units available)
+
+Manufacturer Warranty: 1-Year Wear-and-Tear Warranty.
+
+Return Eligibility: Fully returnable within 30 days if clean and unblemished. No restocking fee.
+
+3. Comprehensive Company Operational Policies
+3.1 Return, Refund, and Restocking Fee Policy (Version 4.2)
+General Return Window: Customers are strictly eligible to request a product return within 30 calendar days from the official recorded delivery date provided by the logistics carrier.
+
+Product Condition Requirement: All returned merchandise must be received in its original, unopened, and factory-sealed packaging with all associated accessories, instructional manuals, warranty cards, and promotional tags intact. Used, altered, or customer-damaged items are strictly non-returnable.
+
+Restocking Fee Mandate: A mandatory 15% restocking fee is automatically applied to all returned items under the Electronics, Home Appliances, and heavy Sports Equipment categories if the packaging has been opened, unsealed, or tested, unless an explicit defect waiver applies.
+
+Defective Item Exception Clause: If an item is verified to have a manufacturing defect, dead-on-arrival (DOA) status, or shipping damage reported within 48 hours of delivery, the 15% restocking fee is entirely waived, and a complete shipping reimbursement plus express replacement is issued.
+
+Refund Processing SLA: Once a returned physical item arrives at the central warehouse facility and successfully clears quality inspection, financial refunds are processed within 5 to 7 business days directly back to the customer's original payment instrument.
+
+3.2 Shipping, Fulfillment, and Tracking Policy
+Standard Delivery Standard: Standard shipping operations require 3 to 5 business days across all primary domestic metropolitan regions and regional distribution centers.
+
+Express Delivery Tier: Express priority fulfillment takes 1 to 2 business days, subject to a priority handling fee calculated at checkout based on volumetric weight.
+
+Real-Time Tracking Integration: Every confirmed order is assigned a unique tracking identification number synchronized with real-time carrier API logs to monitor continuous lifecycle progression: order placement, warehouse picking, packing, dispatch, in-transit telemetry, and final doorstep delivery confirmation.
+
+3.3 Discount and Promotional Rules Matrix
+PROMO-CODE: SAVE10: Offers a flat 10% promotional discount applicable to all qualifying items classified under the Fashion and Sports categories. Requires a minimum cart value threshold of $50.00.
+
+PROMO-CODE: TECHSPECIAL: Provides an exclusive 5% discount on eligible Electronics items. This promotional code cannot be combined with clearance items, refurbished units, or other active store-wide campaigns.
+
+Seasonal Campaign Overrides: Automated pricing rules govern major retail milestones such as Black Friday, Cyber Monday, and mid-season clearance events, overriding base pricing structures as logged in the central discount management database.
+
+4. Architectural Integration: RAG and Memory Systems for AI Agents
+To solve the operational friction of manual processing, the company deploys an intelligent multi-agent framework utilizing Model Context Protocol (MCP) servers. This architecture relies on two deeply integrated technological engines: Retrieval-Augmented Generation (RAG) and advanced Memory Management.
+
+4.1 The Role of RAG (Retrieval-Augmented Generation)
+In an enterprise environment handling thousands of SKUs and complex, shifting policy documents, static prompt contexts are insufficient.
+
+Dynamic Knowledge Retrieval: When an AI agent interacts with a customer regarding return rules or restocking fees (such as the 15% electronics fee), the system executes real-time semantic vector searches against the knowledge base (Section 1 and Section 2).
+
+Vector Embeddings & Semantic Search: Product descriptions, warranty guides, and policy sub-sections are embedded in a vector database. When a query is received, the RAG engine performs similarity matching to pull exact paragraphs, ensuring the agent provides legally and operationally accurate answers without hallucinations.
+
+Catalog Querying: Agents use specialized tool calls to query live inventory levels across warehouses, matching customer requests with real-time stock availability (e.g., verifying whether ELEC-001 has 120 units available or if HOME-202 is out of stock).
+
+4.2 The Role of Advanced Memory Management
+Customer interactions—especially dispute resolutions regarding returns, damages, or shipping delays—often span extended conversations requiring dozens of sequential tool calls. Managing this requires sophisticated memory paradigms:
+
+In-Call Summarization & Masking: During long troubleshooting sessions involving multiple database lookups, invoice verifications, and policy checks, the context window can overflow. Summarization engines compress historical tool call outputs while retaining critical state variables (e.g., agreement on return reason, customer mood, proposed resolution).
+
+Scratchpads and State Consolidation: Agents maintain a working scratchpad during a call to track interim decisions (such as whether a 48-hour defect window was met). Upon call completion, this scratchpad is consolidated into a permanent customer profile record (Long-term Memory), ensuring future support agents instantly recall past disputes and decisions.
+
+Sliding Window and Router Mechanisms: Intelligent routers determine whether an incoming user prompt requires fresh RAG retrieval from enterprise documentation or relies on historical memory states stored in the user session ledger. This hybrid balance guarantees high performance, minimal latency, and absolute operational consistency across the entire E-Commerce Retailer ecosystem.

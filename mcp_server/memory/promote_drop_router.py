@@ -68,6 +68,7 @@ class PromoteDropRouter:
         # Log kept only for grading/debugging.
         self.decision_log: list[RoutingDecision] = []
 
+
     def _decide(self, item: dict[str, Any]) -> RoutingDecision:
         role = item.get("role", "")
         content = item.get("content", "")

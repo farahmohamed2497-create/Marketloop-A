@@ -149,8 +149,12 @@ class VectorStore:
             store._reverse_id_map = saved["reverse_id_map"]
             store._next_int_id = saved["next_int_id"]
 
-        for item_id, payload in store.metadata_store._data.items():
+        for item_id, payload in store.metadata_store.data.items():
             store.metadata_index.add(item_id, payload["metadata"])
 
         return store
+
+    @property
+    def data(self):
+        return self._data
     

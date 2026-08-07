@@ -48,6 +48,11 @@ from mcp.types import (
     ProgressNotification,
     TextContent,
 )
+from mcp_server.memory.rolling_buffer import RollingBuffer
+from mcp_server.memory.scratchpad import Scratchpad
+from mcp_server.memory.promote_drop_router import PromoteDropRouter
+
+
 
 # ---------------------------------------------------------------------------
 # How to launch the server. Adjust if your teammate's entrypoint differs.
@@ -58,6 +63,9 @@ SERVER_PARAMS = StdioServerParameters(
     env=None,
 )
 
+memory_buffer = RollingBuffer(max_turns=10)
+scratchpad = Scratchpad()
+router = PromoteDropRouter()
 
 def _get_requested_schema(params: Any) -> dict[str, Any] | None:
     schema = getattr(params, "requested_schema", None)
@@ -231,6 +239,17 @@ async def print_prompts(session: ClientSession) -> None:
 # ---------------------------------------------------------------------------
 # Interactive loop
 # ---------------------------------------------------------------------------
+def remember(role: str, content: str):
+
+    evicted = memory_buffer.add_turn(
+        role,
+        content
+    )
+
+    if evicted:
+        router.route([evicted])
+
+
 async def interactive_loop(session: ClientSession, capability_flags: dict[str, Any]) -> None:
     while True:
         tool_names = await print_tools(session)
@@ -242,10 +261,15 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
         print("  2) Read a resource")
         print("  3) Get a prompt")
         print("  4) Quit")
+        print("  5) Show memory")
         choice = input("> ").strip()
 
         if choice == "1":
             name = input(f"Tool name {tool_names}: ").strip()
+            scratchpad.set_sub_goal(
+                f"Call tool {name}"
+            )
+
             raw_args = input("Arguments as JSON (e.g. {\"order_id\": 5}) or blank: ").strip()
             arguments = json.loads(raw_args) if raw_args else {}
 
@@ -256,12 +280,22 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
                       "notifications may not be relied on here)")
 
             try:
+                remember(
+                    "user",
+                    f"Tool request: {name} {arguments}"
+                )
                 result = await session.call_tool(name, arguments)
             except Exception as exc:
                 print(f"\nERROR calling tool: {exc}")
                 continue
             for block in result.content:
-                print(f"\nResult:\n{_read_content_text(block)}")
+                tool_text = _read_content_text(block)
+
+                remember(
+                    "tool",
+                    tool_text
+                )
+                print(f"\nResult:\n{tool_text}")
 
         elif choice == "2":
             uri = input("Resource URI (e.g. resource://return_policy): ").strip()
@@ -287,9 +321,23 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
 
         elif choice == "4":
             break
+
+        elif choice == "5":
+
+         print("\n--- Rolling Buffer ---")
+
+        for item in memory_buffer.get_context():
+            print(item)
+
+        print("\n--- Scratchpad ---")
+        print(scratchpad.snapshot())
+
+        print("\n--- Episodic Memory ---")
+
+        for episode in router.episodic_store:
+            print(episode)
         else:
             print("Unknown option.")
-
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="MarketLoop MCP agent client")
@@ -306,10 +354,10 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    async def _run_session(read: Any, write: Any) -> None:
+    async def _run_session(reads: Any, writes: Any) -> None:
         async with ClientSession(
-            read,
-            write,
+            reads,
+            writes,
             elicitation_callback=elicitation_callback,
             sampling_callback=sampling_callback,
             message_handler=message_handler,

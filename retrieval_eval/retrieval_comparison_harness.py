@@ -14,14 +14,16 @@ pruning.
 
 from __future__ import annotations
 
+import pickle
 import sys
 import time
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-from mcp_server.tools.knowledge_store import KeywordStore
-from mcp_server.tools.rag_indexing import index_marketloop_knowledge
+sys.path.append(str(BASE_DIR))
+
+
 from RAG.agentic_rag import AgenticRAGRetriever
 from RAG.self_rag_verification import check_relevance
 from retrieval_eval.decomposition_questions import DECOMPOSITION_QUESTIONS
@@ -35,9 +37,13 @@ def count_tokens(text: str) -> int:
 
 
 def run_agentic(questions) -> dict:
-    store = KeywordStore()
-    index_marketloop_knowledge(store)
-    retriever = AgenticRAGRetriever(store, top_k=2)
+    with open(BASE_DIR / "data" / "keyword_store.pkl", "rb") as f:
+        store = pickle.load(f)
+
+    retriever = AgenticRAGRetriever(
+        store,
+        top_k=2
+    )
 
     correct = 0
     total_tokens = 0

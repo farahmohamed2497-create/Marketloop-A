@@ -20,8 +20,12 @@ class MetadataStore:
         return self._data.get(item_id)
     @property
     def data(self):
+<<<<<<< HEAD
         return self._data
 
+=======
+     return self._data
+>>>>>>> 6805fe3b5e669742bd49c7d9388a7b12bc92e5cc
 
 class MetadataIndex:
     

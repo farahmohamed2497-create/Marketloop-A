@@ -47,6 +47,3 @@ build/
 # Others
 *.log
 *.sqlite3
-
-# Generated local retrieval indexes
-data/marketloop_vector_db/

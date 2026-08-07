@@ -1,7 +1,7 @@
 """
 Unit tests for the ConsolidationLayer + SemanticMemory.
 Covers: creation, updates (change over time), conflict resolution,
-and expiration -- run independently from the live agent loop.
+and expiration -- run independently of the live agent loop.
 
 Uses a fake LLM client (no real API calls) so tests stay fast,
 deterministic, and don't require ANTHROPIC_API_KEY.
@@ -11,8 +11,8 @@ import json
 import re
 import time
 from types import SimpleNamespace
-
 import pytest
+
 
 from mcp_server.memory.episodic_store import EpisodicStore, EpisodicMemory
 from mcp_server.memory.semantic_memory import SemanticMemory

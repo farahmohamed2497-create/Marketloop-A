@@ -1,209 +1,119 @@
-# \# MarketLoop MCP Client
+# MarketLoop: Memory and Grounded Retrieval for MCP Support Agents
 
-# 
+MarketLoop is an MCP-based support assistant for an enterprise marketplace. It already exposes scoped tools for orders, returns, inventory, customer-service records, and reports. This extension gives that agent persistent memory and document-grounded retrieval without rebuilding the existing MCP server or SQLite database.
 
-# \## Install
+## The problem
 
-# 
+MarketLoop return-support calls can exceed 35 turns. Most of that context is noisy tool output: order lookups, shipment tracking, inventory checks, and fee checks. A customer may state the important fact—such as *"the item arrived damaged"*—only once, near the start of the call. That fact determines whether the 15% restocking fee applies. Losing it can cause an incorrect charge.
 
-# pip install -r requirements.txt
+The same agents also need answers that do not belong in a database tool call, including return-policy, shipping-SLA, warranty, and product-catalog questions. Those answers must be grounded in retrieved internal documents, especially when a question contains an exact policy identifier or needs multiple policy sections.
 
-# 
+## Project structure
 
-# \## Run
+```text
+agent/                 Agent client and demos
+mcp_server/            Existing MCP server, tools, database access, and memory
+  memory/              Short-term, episodic, and semantic memory components
+context_eval/          Fixed long-context suite and four-strategy comparison
+RAG/                   Vector store, retrieval pipelines, and verification
+retrieval_eval/        Fixed retrieval questions and evaluation harness
+db/                    Existing SQLite schema and seed data
+tests/                 Unit and integration tests
+```
 
-# 
+## Setup and run
 
-# python client/cli.py
+```bash
+python -m pip install -r requirements.txt
+python db/init_db.py
+python context_eval/comparison_harness.py
+python retrieval_eval/retrieval_comparison_harness.py
+python -m pytest -q
+```
 
-# 
+Do not commit API keys, embedding credentials, or generated vector-database artifacts. Store secrets in `.env`, which must remain ignored by Git.
 
-# \## Memory \& Context Management
+## Memory architecture
 
-# 
+### Short-term memory and scratchpad
 
-# \### The problem
+`mcp_server/memory/rolling_buffer.py` holds the rolling transcript used for the current conversation. It is deliberately separate from `mcp_server/memory/scratchpad.py`, which stores the agent's current plan, sub-goal, and working state. Context pruning never removes the scratchpad.
 
-# 
+When the rolling buffer overflows, `mcp_server/memory/promote_drop_router.py` makes and logs a visible decision for each aging item:
 
-# MarketLoop support calls that involve a return can run 35+ turns, most of
+- **Forget:** transient greetings, duplicate tool output, or facts with no future support value.
+- **Promote to episodic:** customer-specific events that can affect a later support interaction.
 
-# them tool calls (order lookup, shipment tracking, inventory checks, fee
+The router never writes directly to semantic memory.
 
-# lookups). The customer states the return reason once, near the start of the
+### Episodic and semantic memory
 
-# call (e.g. "item arrived damaged" vs. "changed my mind"). Per MarketLoop's
+Episodic events are stored in `mcp_server/memory/episodic_store.py`. Semantic facts are created only by the separate periodic consolidation process in `mcp_server/memory/consolidation.py`, then stored in `mcp_server/memory/semantic_memory.py`.
 
-# return policy, that single early fact decides whether a 15% restocking fee
+Consolidation is responsible for updating facts, retaining version history, applying expiration dates, and recording how contradictory episodes were resolved. The conflict demo in `mcp_server/memory/demo_conflict.py` provides a reproducible example.
 
-# applies at the end of the call. If a context-pruning strategy silently drops
+## Context-window evaluation
 
-# that detail while trimming tool noise, the agent risks charging a customer
+The fixed suite in `context_eval/scenario.py` contains 12 return-support cases. Each buries an early return reason beneath approximately 35 tool-heavy turns, then asks for that reason at the end. `context_eval/comparison_harness.py` runs the same suite for all four strategies.
 
-# for damage that wasn't their fault — a real cost, not a hypothetical one.
+| Strategy | Accuracy | Avg. tokens/run | Avg. latency (ms) |
+|---|---:|---:|---:|
+| Sliding window (last 10) | 0/12 | 45.0 | 0.008 |
+| Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.014 |
+| Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.011 |
+| Zone-based pruning (head=2, tail=10, middle=20%) | 12/12 | 80.8 | 0.014 |
 
-# 
+### Shipped context strategy: observation masking
 
-# This section covers the short-term memory layer built to survive that
+MarketLoop ships observation/tool-output masking as the default. It retained the critical detail in every test case while using the fewest tokens of the strategies with full accuracy. This matches the real failure mode: tool output is the context bloat, not customer dialogue. Recursive summarization and zone pruning also retained the detail, but consumed more context without an accuracy gain on the fixed suite.
 
-# problem: a rolling buffer, four context-management strategies evaluated
+## Retrieval architecture
 
-# against a fixed long-context test suite, and a promote-or-drop router that
+The retrieval corpus is the internal enterprise product catalog and policy material. Documents are chunked and embedded, stored in an ANN vector index, and accompanied by metadata payloads and a metadata index for filtering.
 
-# decides what graduates from short-term to episodic memory. (Semantic memory
+MarketLoop implements three retrieval paths:
 
-# consolidation and zone-based pruning are a teammate's piece and are not
+1. **Naive RAG** (`RAG/naive_rag.py`): chunk, embed, retrieve, then generate from retrieved context.
+2. **Hybrid search** (`RAG/hybrid_search.py`): combines vector similarity and BM25 keyword matching, which is important for exact policy codes, order identifiers, and product SKUs.
+3. **Agentic RAG** (`RAG/agentic_rag.py`): decomposes a multi-part question, retrieves evidence per sub-question, observes coverage, and stops after the needed hops.
 
-# covered by this module yet.)
+### Self-RAG-style verification
 
-# 
+`RAG/self_rag_verification.py` checks two conditions before retrieved information is used:
 
-# \### Context management strategies: comparison table
+- retrieved chunks must be relevant to the query;
+- a proposed answer must be supported by the retrieved chunks.
 
-# 
+The same relevance check is also available for recalled episodic and semantic memory, preventing an unrelated remembered event from being reused in the current support case.
 
-# Evaluated with `context\_eval/comparison\_harness.py` against
+### Retrieval evaluation
 
-# `context\_eval/scenario.py`'s fixed test suite: 12 cases, \~35 tool-noise turns
+`retrieval_eval/` contains fixed question categories for general questions, identifier/citation-heavy questions, and multi-part decomposition questions. The final comparison runs every architecture against every question and reports accuracy, tokens per query, and latency per query. The results table below must be regenerated from `retrieval_eval/retrieval_comparison_harness.py` after all three pipelines are wired into the shared harness.
 
-# each, across all 4 return-reason variants.
+| Architecture | Accuracy | Avg. tokens/query | Avg. latency (ms) |
+|---|---:|---:|---:|
+| Naive RAG | Run harness | Run harness | Run harness |
+| Hybrid search | Run harness | Run harness | Run harness |
+| Agentic RAG (multi-hop) | Run harness | Run harness | Run harness |
 
-# 
+MarketLoop uses hybrid retrieval for routine policy and exact-identifier questions, and routes decomposition-shaped questions to Agentic RAG when multiple retrieval rounds are warranted. The final measured table is the source of this decision.
 
-# | Strategy | Accuracy | Avg tokens/run | Avg latency (ms) |
-
-# |---|---|---|---|
-
-# | Sliding window (last 10) | 0/12 | 45.0 | 0.006 |
-
-# | Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.011 |
-
-# | Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.009 |
-
-# | Zone-based pruning | pending (teammate's piece) | - | - |
-
-# 
-
-# \### Final choice: Observation Masking
-
-# 
-
-# \*\*We ship with Observation Masking as the default context strategy.\*\*
-
-# 
-
-# \- \*\*Sliding window fails outright (0/12).\*\* MarketLoop's transcripts are
-
-# &#x20; tool-call-dominated: trimming by turn count throws away the return reason
-
-# &#x20; the moment 10 tool calls pass, regardless of how important it was.
-
-# \- \*\*Masking and summarization both hit 12/12\*\*, so accuracy alone doesn't
-
-# &#x20; decide it. The tie-breaker is cost: masking uses roughly half the tokens
-
-# &#x20; of summarization (32.8 vs 61.8 avg tokens/run). That's because masking
-
-# &#x20; targets the actual bloat source directly — it keeps only the last 3 tool
-
-# &#x20; outputs and leaves every dialogue turn untouched — while summarization
-
-# &#x20; keeps a larger 10-turn recency window verbatim (including raw tool noise
-
-# &#x20; inside that window) before folding anything older into a summary line.
-
-# \- MarketLoop's failure mode is specifically \*\*tool-output bloat, not long
-
-# &#x20; dialogue\*\* (each call has only 1-2 user turns that matter), so masking's
-
-# &#x20; narrower, cheaper approach matches the real shape of the problem without
-
-# &#x20; giving up any accuracy.
-
-# 
-
-# Sliding window is not used in production. Summarization remains implemented
-
-# and benchmarked (it would be the better fit for a use case with many
-
-# user-stated facts spread across a long dialogue), but is not the default.
-
-# 
-
-# \### Files
-
-# 
-
-# \- `mcp\_server/memory/rolling\_buffer.py` — short-term rolling message buffer
-
-# \- `mcp\_server/memory/sliding\_window.py` — strategy 1
-
-# \- `mcp\_server/memory/masking.py` — strategy 2 (shipped default)
-
-# \- `mcp\_server/memory/summarization.py` — strategy 3
-
-# \- `mcp\_server/memory/promote\_drop\_router.py` — forget-vs-episodic routing,
-
-# &#x20; with reasoning logged per decision; never writes to semantic memory
-
-# &#x20; directly
-
-# \- `context\_eval/scenario.py` — fixed long-context test suite (do not edit
-
-# &#x20; once evaluation has started)
-
-# \- `context\_eval/comparison\_harness.py` — produces the table above
-
-# Memory Problem & Solution
-
-## Large support conversations contain a mix of:
-
-### - customer facts
-### - tool outputs
-### - database lookups
-### - policy retrieval
-### - agent reasoning
-
-# A naive rolling context window eventually drops older turns, which can remove critical customer information before a final decision is made.
-
-## Example:
-
-### Customer:"Item arrived damaged in shipping."
-
-## After enough tool calls, this turn may be evicted from the live buffer.
-
-# Solution
-
-## MarketLoop uses a multi-layer memory architecture:
-
-## 1. Rolling Buffer
-###   - stores recent conversation turns
-###   - returns evicted turns when capacity is exceeded
-
-## 2. Promote-or-Drop Router
-###  - evaluates evicted turns
-###  - promotes important customer facts
-###  - drops low-value tool noise
-
-## 3. Episodic Memory
-### - stores promoted conversation episodes
-
-## 4. Consolidation Layer
-### - periodically converts episodic memories into structured facts
-
-## 5. Semantic Memory
-###  - stores versioned long-term facts
-###  - preserves history
-###  - supports conflict resolution
-
-# Memory Flow
-
-## RollingBuffer
-  #      ↓
-## PromoteDropRouter
-#        ↓
-## EpisodicStore
-   #     ↓
-## ConsolidationLayer
-   #     ↓
-## SemanticMemory
+## Demo and verification
+
+The final demo should show:
+
+1. a buffer overflow resulting in both a forget and an episodic promotion decision;
+2. periodic consolidation resolving a real contradictory fact while retaining history;
+3. all four context strategies running against the fixed suite;
+4. Naive, Hybrid, and Agentic retrieval answering the same question set;
+5. a Self-RAG check passing supported evidence and rejecting unsupported or irrelevant evidence;
+6. an end-to-end agent request that uses both memory and retrieval.
+
+## Key files
+
+- `agent/client.py` — live agent loop.
+- `mcp_server/server.py` — MCP server and existing tool registration.
+- `agent/memory_demo.py` — memory demo path.
+- `context_eval/comparison_harness.py` — context comparison table.
+- `retrieval_eval/retrieval_comparison_harness.py` — retrieval comparison table.
+- `RAG/self_rag_verification.py` — retrieval and memory verification checks.

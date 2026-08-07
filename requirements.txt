@@ -1,13 +1,19 @@
-# Development and test dependencies for the MCP client
+# Core MCP client/server
+mcp>=1.0.0
+aiohttp>=3.9.0
+
+# RAG and vector retrieval
+numpy>=1.26.0
+sentence-transformers>=3.0.0
+hnswlib>=0.8.0
+
+# Optional LLM-backed generation and configuration
+groq>=0.11.0
+anthropic>=0.40.0
+python-dotenv>=1.0.1
+
+# Development and tests
 pytest>=7.0
 black
 flake8
 mypy
-aiohttp
-
-mcp
-mcp
-anthropic
-rag
-rag
-chroma-hnswlib

@@ -4,3 +4,10 @@ black
 flake8
 mypy
 aiohttp
+
+mcp
+mcp
+anthropic
+rag
+rag
+chroma-hnswlib

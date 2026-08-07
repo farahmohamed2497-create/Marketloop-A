@@ -5,7 +5,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from mcp_server.tools.knowledge_store import KeywordStore
 from mcp_server.tools.rag_indexing import index_marketloop_knowledge
-from RAG.agentic_rag import AgenticRAGRetriever
+from rag.agentic_rag import AgenticRAGRetriever
 
 
 def _make_store() -> KeywordStore:

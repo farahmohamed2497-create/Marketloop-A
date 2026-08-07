@@ -14,7 +14,7 @@ class HybridSearch:
 
         vector_results = self.vector_store.search(
             query_embedding,
-            top_k=top_k * 2
+            k=top_k * 2
         )
 
         keyword_results = self.keyword_store.query(

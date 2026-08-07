@@ -18,6 +18,9 @@ class MetadataStore:
 
     def get(self, item_id: str):
         return self._data.get(item_id)
+    @property
+    def data(self):
+        return self._data
 
 
 class MetadataIndex:

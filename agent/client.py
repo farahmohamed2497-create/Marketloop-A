@@ -18,6 +18,9 @@ assignment:
   - Progress tracking      : shows live progress for long-running tools.
   - Transport (Both)       : stdio for development, Streamable HTTP for
                               remote deployment.
+  - RAG (hybrid + agentic) : answers knowledge questions grounded in the
+                              vector/keyword stores, verified by Self-RAG
+                              before being shown to the user.
 
 Run with:
     python agent/client.py                      # stdio (default)
@@ -33,6 +36,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys 
 import os
 from typing import Any
 
@@ -51,21 +55,22 @@ from mcp.types import (
 from mcp_server.memory.rolling_buffer import RollingBuffer
 from mcp_server.memory.scratchpad import Scratchpad
 from mcp_server.memory.promote_drop_router import PromoteDropRouter
-
+from rag.rag_pipeline import answer_with_hybrid, answer_with_agentic
 
 
 # ---------------------------------------------------------------------------
 # How to launch the server. Adjust if your teammate's entrypoint differs.
 # ---------------------------------------------------------------------------
 SERVER_PARAMS = StdioServerParameters(
-    command="python",
-    args=["-m", "mcp_server.server"],
-    env=None,
+    command=sys.executable,
+    args=["-u", "-m", "mcp_server.server"],
+    env={**os.environ, "PYTHONUNBUFFERED": "1"},
 )
 
 memory_buffer = RollingBuffer(max_turns=10)
 scratchpad = Scratchpad()
 router = PromoteDropRouter()
+
 
 def _get_requested_schema(params: Any) -> dict[str, Any] | None:
     schema = getattr(params, "requested_schema", None)
@@ -119,7 +124,6 @@ async def elicitation_callback(
     if answer != "y":
         return ElicitResult(action="decline")
 
-    # If the server asked for structured data, collect it field by field.
     content: dict[str, Any] = {}
     schema = requested_schema or {}
     properties = schema.get("properties", {}) if isinstance(schema, dict) else getattr(schema, "properties", {})
@@ -147,14 +151,12 @@ async def sampling_callback(
     system_prompt = getattr(params, "systemPrompt", None) or getattr(params, "system_prompt", "") or ""
     print(f"System Prompt: {system_prompt}")
 
-    # Extract messages from parameters
     prompt_text = ""
     for msg in getattr(params, "messages", []):
         content = getattr(msg, "content", None)
         prompt_text += f"\n[{getattr(msg, 'role', 'user')}]: {_read_content_text(content)}"
     print(f"Messages:\n{prompt_text}")
 
-    # Generate output (using a lightweight mock/fallback or local LLM call)
     reply = "Dear Customer, we apologize for the order delay. Your item is on its way."
 
     return CreateMessageResult(
@@ -170,7 +172,6 @@ async def sampling_callback(
 # (e.g. a user's role was switched and new tools became available).
 # ---------------------------------------------------------------------------
 async def message_handler(message: Any) -> None:
-    # Progress updates for long-running tools (report generation, etc.)
     notification = getattr(message, "root", message)
     if isinstance(notification, ProgressNotification):
         params = getattr(notification, "params", None)
@@ -183,11 +184,9 @@ async def message_handler(message: Any) -> None:
         print(f"  [progress] {pct}  {label}")
         return
 
-    # Generic notification dispatch — catch tools/list_changed specifically.
     method = getattr(notification, "method", None)
     if method == "notifications/tools/list_changed":
         print("\n>>> [notification] tools/list_changed received — refreshing tool list...")
-        # The caller re-fetches tools right after this fires; see main loop.
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +207,7 @@ async def print_capabilities(session: ClientSession) -> dict[str, Any]:
     print(f"  logging   : {logging_caps}")
     return {
         "tools_list_changed": bool(getattr(tools_caps, "list_changed", None)),
-        "elicitation": True,  # negotiated via client capabilities, not shown in server payload
+        "elicitation": True,
     }
 
 
@@ -237,15 +236,37 @@ async def print_prompts(session: ClientSession) -> None:
 
 
 # ---------------------------------------------------------------------------
+# RAG display helpers
+# ---------------------------------------------------------------------------
+def _print_rag_result(result: dict) -> None:
+    print("\n" + "-" * 60)
+    print("ANSWER:")
+    print(result["answer"])
+    print("-" * 60)
+
+    if result.get("relevance_checks"):
+        print("\nSelf-RAG relevance checks:")
+        for check in result["relevance_checks"]:
+            status = "PASS" if check.passed else "FAIL"
+            print(f"  [{status}] {check.reasoning}")
+
+    if result.get("hops"):
+        print("\nAgentic RAG hops:")
+        for hop in result["hops"]:
+            print(f"  - sub-question: {hop.query}")
+            print(f"    reasoning: {hop.reasoning}")
+
+    support_check = result.get("support_check")
+    if support_check is not None:
+        status = "GROUNDED" if support_check.passed else "NOT GROUNDED"
+        print(f"\nSelf-RAG support check: [{status}] {support_check.reasoning}")
+
+
+# ---------------------------------------------------------------------------
 # Interactive loop
 # ---------------------------------------------------------------------------
 def remember(role: str, content: str):
-
-    evicted = memory_buffer.add_turn(
-        role,
-        content
-    )
-
+    evicted = memory_buffer.add_turn(role, content)
     if evicted:
         router.route([evicted])
 
@@ -262,39 +283,30 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
         print("  3) Get a prompt")
         print("  4) Quit")
         print("  5) Show memory")
+        print("  6) Ask a knowledge question (Hybrid RAG)")
+        print("  7) Ask a multi-part question (Agentic RAG)")
         choice = input("> ").strip()
 
         if choice == "1":
             name = input(f"Tool name {tool_names}: ").strip()
-            scratchpad.set_sub_goal(
-                f"Call tool {name}"
-            )
+            scratchpad.set_sub_goal(f"Call tool {name}")
 
             raw_args = input("Arguments as JSON (e.g. {\"order_id\": 5}) or blank: ").strip()
             arguments = json.loads(raw_args) if raw_args else {}
 
-            # tools/list_changed is only meaningful if the server actually
-            # declared support for it — this is the capability check in action.
             if not capability_flags["tools_list_changed"]:
                 print("  (note: server did NOT declare tools.listChanged=True — "
                       "notifications may not be relied on here)")
 
             try:
-                remember(
-                    "user",
-                    f"Tool request: {name} {arguments}"
-                )
+                remember("user", f"Tool request: {name} {arguments}")
                 result = await session.call_tool(name, arguments)
             except Exception as exc:
                 print(f"\nERROR calling tool: {exc}")
                 continue
             for block in result.content:
                 tool_text = _read_content_text(block)
-
-                remember(
-                    "tool",
-                    tool_text
-                )
+                remember("tool", tool_text)
                 print(f"\nResult:\n{tool_text}")
 
         elif choice == "2":
@@ -323,21 +335,42 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
             break
 
         elif choice == "5":
+            print("\n--- Rolling Buffer ---")
+            for item in memory_buffer.get_context():
+                print(item)
 
-         print("\n--- Rolling Buffer ---")
+            print("\n--- Scratchpad ---")
+            print(scratchpad.snapshot())
 
-        for item in memory_buffer.get_context():
-            print(item)
+            print("\n--- Episodic Memory ---")
+            for episode in router.episodic_store:
+                print(episode)
 
-        print("\n--- Scratchpad ---")
-        print(scratchpad.snapshot())
+        elif choice == "6":
+            query = input("Question: ").strip()
+            if not query:
+                continue
+            scratchpad.set_sub_goal(f"Answer knowledge question via hybrid RAG: {query}")
+            remember("user", f"Knowledge question: {query}")
 
-        print("\n--- Episodic Memory ---")
+            result = answer_with_hybrid(query)
+            _print_rag_result(result)
+            remember("assistant", result["answer"])
 
-        for episode in router.episodic_store:
-            print(episode)
+        elif choice == "7":
+            query = input("Question (can be multi-part): ").strip()
+            if not query:
+                continue
+            scratchpad.set_sub_goal(f"Answer multi-part question via agentic RAG: {query}")
+            remember("user", f"Multi-part question: {query}")
+
+            result = answer_with_agentic(query)
+            _print_rag_result(result)
+            remember("assistant", result["answer"])
+
         else:
             print("Unknown option.")
+
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="MarketLoop MCP agent client")

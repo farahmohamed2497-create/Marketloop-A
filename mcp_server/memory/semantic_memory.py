@@ -100,13 +100,9 @@ class SemanticMemory:
                 result.append(current)
         return result
 
-    # ---------- Persistence: الحفظ والاسترجاع من القرص ----------
 
     def save(self, path: str) -> None:
-        """
-        بتحفظ كل الحقائق (بما فيها القديمة المستبدلة) على القرص كـ JSON،
-        عشان الداتا متطيرش لما البرنامج يتقفل.
-        """
+
         data = {
             "next_id": self._next_id,
             "facts": {
@@ -119,7 +115,7 @@ class SemanticMemory:
 
     @classmethod
     def load(cls, path: str) -> "SemanticMemory":
-        """بترجّع الحقائق كلها من القرص، بنفس النسخ والتاريخ والـ superseded chain."""
+
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 

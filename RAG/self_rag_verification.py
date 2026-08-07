@@ -67,7 +67,7 @@ def check_relevance(query: str, chunk_text: str, threshold: float = 0.15) -> Ver
     return VerificationResult(passed, overlap, reasoning)
 
 
-def check_support(answer: str, chunks: list[str], threshold: float = 0.2) -> VerificationResult:
+def check_support(answer: str, chunks: list[str], threshold: float = 0.5) -> VerificationResult:
     """Is the generated answer actually grounded in the retrieved chunks,
     or does it contain claims that never appeared in what was retrieved?
     Ratio of answer keywords traceable to the combined chunk text."""

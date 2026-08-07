@@ -1,67 +1,82 @@
-"""
-rag/rag_pipeline.py
+"""RAG response paths for MarketLoop.
 
-Wires hybrid search + agentic RAG + generation + Self-RAG verification
-into callable functions, ready to be used from agent/client.py.
+External services are initialized lazily so this module can be imported by
+tests without a Groq API key or pre-built local retrieval indexes.
 """
 
 from __future__ import annotations
 
 import os
 import pickle
+from pathlib import Path
+from typing import Any
+
 from dotenv import load_dotenv
 from groq import Groq
 
-from rag.embedding import EmbeddingModel
-from rag.vector_store import VectorStore
-from rag.hybrid_search import HybridSearch
-from rag.agentic_rag import AgenticRAGRetriever
-from rag.self_rag_verification import check_relevance, check_support
-from mcp_server.tools.knowledge_store import KeywordStore
+from RAG.agentic_rag import AgenticRAGRetriever
+from RAG.embedding import EmbeddingModel
+from RAG.hybrid_search import HybridSearch
+from RAG.self_rag_verification import check_relevance, check_support
+from RAG.vector_store import VectorStore
+
 
 load_dotenv()
 
-_groq_client = Groq(api_key=os.getenv("GROQ_API_KEY1"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Kept as module attributes so integration tests can monkeypatch them with
+# deterministic fakes.  Do not create clients or load indexes at import time.
+_groq_client: Groq | None = None
+_embedder: EmbeddingModel | None = None
+_hybrid: HybridSearch | None = None
+_agentic: AgenticRAGRetriever | None = None
 
 
 class _RenamingUnpickler(pickle.Unpickler):
-    """
-    Unpickler متوافق مع ملفات .pkl القديمة اللي اتعملها save وقت
-    ما كان اسم الفولدر 'RAG' (بحرف كبير)، قبل ما يتعمله rename لـ 'rag'.
-    بيحوّل أي اسم موديول بيبدأ بـ RAG لنفس الاسم بحرف صغير تلقائيًا.
-    """
+    """Load keyword-store pickles created before package-name normalization."""
 
-    def find_class(self, module, name):
-        if module == "RAG" or module.startswith("RAG."):
-            module = "rag" + module[len("RAG"):]
-        try:
-            return super().find_class(module, name)
-        except ModuleNotFoundError:
-            # fallback: لو الكلاس أصلاً اتنقل دلوقتي لمكان تاني (مش جوه rag)
-            if name == "KeywordStore":
-                from mcp_server.tools.knowledge_store import KeywordStore
-                return KeywordStore
-            raise
+    def find_class(self, module: str, name: str) -> Any:
+        # The repository package is named RAG.  Accept old lowercase pickles.
+        if module == "rag" or module.startswith("rag."):
+            module = "RAG" + module[len("rag"):]
+        return super().find_class(module, name)
 
 
-def _load_stores():
+def _load_stores() -> tuple[EmbeddingModel, HybridSearch, AgenticRAGRetriever]:
+    """Load local indexes only when a real, non-test request needs them."""
+    global _embedder, _hybrid, _agentic
+
+    if _embedder is not None and _hybrid is not None and _agentic is not None:
+        return _embedder, _hybrid, _agentic
+
     embedder = EmbeddingModel()
-    vector_store = VectorStore.load("./data/marketloop_vector_db")
+    vector_store = VectorStore.load(str(PROJECT_ROOT / "data" / "marketloop_vector_db"))
+    with (PROJECT_ROOT / "data" / "keyword_store.pkl").open("rb") as handle:
+        keyword_store = _RenamingUnpickler(handle).load()
 
-    with open("./data/keyword_store.pkl", "rb") as f:
-        keyword_store = _RenamingUnpickler(f).load()
-
-    hybrid = HybridSearch(vector_store=vector_store, keyword_store=keyword_store)
-    agentic = AgenticRAGRetriever(store=keyword_store)
-    return embedder, hybrid, agentic
+    _embedder = embedder
+    _hybrid = HybridSearch(vector_store=vector_store, keyword_store=keyword_store)
+    _agentic = AgenticRAGRetriever(store=keyword_store)
+    return _embedder, _hybrid, _agentic
 
 
-_embedder, _hybrid, _agentic = _load_stores()
+def _get_groq_client() -> Groq:
+    """Create the Groq client only for a real generation request."""
+    global _groq_client
+    if _groq_client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY is not configured. Add it to .env before running "
+                "a real RAG generation request. Tests use a fake client and do not need it."
+            )
+        _groq_client = Groq(api_key=api_key)
+    return _groq_client
 
 
 def _generate(query: str, context: str) -> str:
-    prompt = f"""
-You are an assistant.
+    prompt = f"""You are an assistant.
 
 Answer ONLY using the provided context.
 
@@ -73,7 +88,7 @@ Question:
 
 Answer:
 """
-    response = _groq_client.chat.completions.create(
+    response = _get_groq_client().chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
@@ -81,16 +96,18 @@ Answer:
     return response.choices[0].message.content
 
 
-def answer_with_hybrid(query: str, top_k: int = 3) -> dict:
-    """Hybrid retrieval (vector + BM25) + generation + Self-RAG checks."""
-    query_embedding = _embedder.embed(query)
+def answer_with_hybrid(query: str, top_k: int = 3) -> dict[str, Any]:
+    """Hybrid retrieval (vector + BM25), generation, and Self-RAG checks."""
+    global _embedder, _hybrid
+    if _embedder is None or _hybrid is None:
+        _load_stores()
+    assert _embedder is not None and _hybrid is not None
 
     results = _hybrid.search(
-        query_embedding=query_embedding,
+        query_embedding=_embedder.embed(query),
         query_text=query,
         top_k=top_k,
     )
-
     if not results:
         return {
             "answer": "No relevant information found in the knowledge base.",
@@ -99,9 +116,8 @@ def answer_with_hybrid(query: str, top_k: int = 3) -> dict:
             "support_check": None,
         }
 
-    relevance_checks = [check_relevance(query, r["text"]) for r in results]
-    relevant_results = [r for r, c in zip(results, relevance_checks) if c.passed]
-
+    relevance_checks = [check_relevance(query, item["text"]) for item in results]
+    relevant_results = [item for item, check in zip(results, relevance_checks) if check.passed]
     if not relevant_results:
         return {
             "answer": "Retrieved content did not pass relevance verification.",
@@ -110,10 +126,9 @@ def answer_with_hybrid(query: str, top_k: int = 3) -> dict:
             "support_check": None,
         }
 
-    context = "\n\n".join(r["text"] for r in relevant_results)
+    context = "\n\n".join(item["text"] for item in relevant_results)
     answer = _generate(query, context)
-    support_check = check_support(answer, [r["text"] for r in relevant_results])
-
+    support_check = check_support(answer, [item["text"] for item in relevant_results])
     return {
         "answer": answer,
         "chunks": relevant_results,
@@ -122,10 +137,14 @@ def answer_with_hybrid(query: str, top_k: int = 3) -> dict:
     }
 
 
-def answer_with_agentic(query: str) -> dict:
-    """Multi-hop agentic retrieval (decompose -> retrieve -> observe) + generation + Self-RAG."""
-    result = _agentic.run(query)
+def answer_with_agentic(query: str) -> dict[str, Any]:
+    """Agentic retrieval, generation, and Self-RAG support verification."""
+    global _agentic
+    if _agentic is None:
+        _load_stores()
+    assert _agentic is not None
 
+    result = _agentic.run(query)
     if not result.final_chunks:
         return {
             "answer": "No relevant information found for any sub-question.",
@@ -133,13 +152,7 @@ def answer_with_agentic(query: str) -> dict:
             "support_check": None,
         }
 
-    chunk_texts = [c["payload"] for c in result.final_chunks]
-    context = "\n\n".join(chunk_texts)
-    answer = _generate(query, context)
+    chunk_texts = [chunk["payload"] for chunk in result.final_chunks]
+    answer = _generate(query, "\n\n".join(chunk_texts))
     support_check = check_support(answer, chunk_texts)
-
-    return {
-        "answer": answer,
-        "hops": result.hops,
-        "support_check": support_check,
-    }
+    return {"answer": answer, "hops": result.hops, "support_check": support_check}

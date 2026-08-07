@@ -18,11 +18,20 @@ class RollingBuffer:
         self.max_turns = max_turns
         self.buffer = deque(maxlen=max_turns)
 
-    def add_turn(self, role: str, content: str):
-        self.buffer.append({
-            "role": role,
-            "content": content
-        })
+    def add_turn(self, role, content):
+        evicted = None
+
+        if len(self.buffer) >= self.max_turns:
+            evicted = self.buffer[0]
+
+        self.buffer.append(
+            {
+                "role": role,
+                "content": content
+            }
+        )
+
+        return evicted
 
     def get_context(self):
         return list(self.buffer)

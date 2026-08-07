@@ -36,13 +36,17 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
 
+from mcp_server.memory.semantic_memory import SemanticMemory
+from mcp_server.memory.consolidation import ConsolidationLayer
+from mcp_server.memory.rolling_buffer import RollingBuffer
+from mcp_server.memory.masking import mask_tool_outputs
+from mcp_server.memory.promote_drop_router import PromoteDropRouter
+from mcp_server.memory.scratchpad import Scratchpad
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mcp_server.memory.rolling_buffer import RollingBuffer
-from mcp_server.memory.masking import mask_tool_outputs
-from mcp_server.memory.promote_drop_router import PromoteDropRouter
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -76,21 +80,41 @@ async def main() -> None:
     # short-term memory, always on for this call
     buffer = RollingBuffer(max_turns=6)
     router = PromoteDropRouter()
+    semantic_memory = SemanticMemory()
+    scratchpad = Scratchpad()
+    consolidation = ConsolidationLayer(
+        episodic_store=router.episodic_store,
+        semantic_memory=semantic_memory,
+    )
+
 
     async with stdio_client(SERVER_PARAMS) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
+            scratchpad.set_plan("Handle customer return request")
+            scratchpad.set_sub_goal("Validate return eligibility")
+
             # --- Turn 1: customer states the return reason up front ---
+
             return_reason = "item arrived damaged in shipping"
             customer_turn = f"Customer wants to return order #1. Reason: {return_reason}."
-            buffer.add_turn("user", customer_turn)
+            evicted = buffer.add_turn("user", customer_turn)
+
+            if evicted:
+                router.route([evicted])
             print(f"{YELLOW}[turn added to RollingBuffer]{RESET} {customer_turn}")
 
             # --- Real tool call #1: read the actual policy resource ---
             policy_result = await session.read_resource("marketloop://policies/return_and_refund")
             policy_text = "\n".join(content_text(c) for c in policy_result.contents)
-            buffer.add_turn("tool", f"[read_resource:return_and_refund] {policy_text[:200]}")
+            evicted = buffer.add_turn(
+                "tool",
+                f"[read_resource:return_and_refund] {policy_text[:200]}"
+            )
+
+            if evicted:
+                router.route([evicted])
             print(f"{YELLOW}[real tool call]{RESET} read_resource(return_and_refund) -> {len(policy_text)} chars")
 
             # --- Real tool call #2: process the actual return via the live server ---
@@ -99,7 +123,16 @@ async def main() -> None:
                 {"order_id": 1, "customer_id": 1, "reason": return_reason},
             )
             return_text = "\n".join(content_text(b) for b in return_result.content)
-            buffer.add_turn("tool", f"[process_return_request] {return_text}")
+            scratchpad.update_state("return_reason", return_reason)
+            scratchpad.update_state("order_id", 1)
+            scratchpad.update_state("return_processed", True)
+            evicted = buffer.add_turn(
+                "tool",
+                f"[process_return_request] {return_text}"
+            )
+
+            if evicted:
+                router.route([evicted])
             print(f"{YELLOW}[real tool call]{RESET} process_return_request -> {return_text[:120]}")
 
             # --- Real tool call #3: a report call, standing in for further
@@ -109,12 +142,24 @@ async def main() -> None:
                 {"start_date": "2026-01-01", "end_date": "2026-07-31"},
             )
             report_text = "\n".join(content_text(b) for b in report_result.content)
-            buffer.add_turn("tool", f"[generate_sales_audit_report] {report_text[:150]}")
+            evicted = buffer.add_turn(
+                "tool",
+                f"[generate_sales_audit_report] {report_text[:150]}"
+            )
+
+            if evicted:
+                router.route([evicted])
             print(f"{YELLOW}[real tool call]{RESET} generate_sales_audit_report -> {len(report_text)} chars")
 
             # --- Pad with a few more tool-noise turns to force a real buffer overflow ---
             for i in range(4):
-                buffer.add_turn("tool", f"[check_shipment_status] noise result {i}")
+                evicted = buffer.add_turn(
+                    "tool",
+                    f"[check_shipment_status] noise result {i}"
+                )
+
+                if evicted:
+                    router.route([evicted])
 
             full_transcript = [
                 {"role": "user", "content": customer_turn},
@@ -139,8 +184,10 @@ async def main() -> None:
             # --- Promote-or-drop routing on the full transcript, i.e. what
             #     the router sees BEFORE the buffer silently drops it ---
             header("STEP: PROMOTE-OR-DROP ROUTING (runs on items as they age out)")
-            decisions = router.route(full_transcript)
-            for d in router.get_reasoning_log():
+
+            reasoning_log = router.get_reasoning_log()
+
+            for d in reasoning_log:
                 tag = GREEN + "PROMOTE" + RESET if d["decision"] == "promote" else DIM + "forget " + RESET
                 print(f"  [{tag}] {d['content'][:70]}")
                 print(f"           {DIM}reasoning: {d['reasoning']}{RESET}")
@@ -148,6 +195,33 @@ async def main() -> None:
             print(f"\n  Episodic store now holds {len(router.episodic_store)} item(s) "
                   f"(would be handed to the consolidation layer) - the return reason "
                   f"survives here even though the raw buffer already dropped it.")
+
+            header("STEP: CONSOLIDATION LAYER")
+
+            consolidation.run()
+
+            facts = semantic_memory.get_all_current()
+
+            print(f"Current semantic facts: {len(facts)}")
+
+            for fact in facts:
+                print(
+                    f"[{fact.key}] "
+                    f"version={fact.version} "
+                    f"value={fact.value}"
+                )
+
+
+            header("STEP: SCRATCHPAD STATE")
+
+            snapshot = scratchpad.snapshot()
+
+            print(f"Plan:      {snapshot['plan']}")
+            print(f"Sub-goal:  {snapshot['sub_goal']}")
+            print(f"State:")
+
+            for k, v in snapshot["state"].items():
+                print(f"  {k}: {v}")
 
             # --- Apply the winning context-management strategy to the FULL
             #     transcript (i.e. what actually gets sent for the final

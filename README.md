@@ -154,3 +154,56 @@
 
 # \- `context\_eval/comparison\_harness.py` — produces the table above
 
+# Memory Problem & Solution
+
+## Large support conversations contain a mix of:
+
+### - customer facts
+### - tool outputs
+### - database lookups
+### - policy retrieval
+### - agent reasoning
+
+# A naive rolling context window eventually drops older turns, which can remove critical customer information before a final decision is made.
+
+## Example:
+
+### Customer:"Item arrived damaged in shipping."
+
+## After enough tool calls, this turn may be evicted from the live buffer.
+
+# Solution
+
+## MarketLoop uses a multi-layer memory architecture:
+
+## 1. Rolling Buffer
+###   - stores recent conversation turns
+###   - returns evicted turns when capacity is exceeded
+
+## 2. Promote-or-Drop Router
+###  - evaluates evicted turns
+###  - promotes important customer facts
+###  - drops low-value tool noise
+
+## 3. Episodic Memory
+### - stores promoted conversation episodes
+
+## 4. Consolidation Layer
+### - periodically converts episodic memories into structured facts
+
+## 5. Semantic Memory
+###  - stores versioned long-term facts
+###  - preserves history
+###  - supports conflict resolution
+
+# Memory Flow
+
+## RollingBuffer
+  #      ↓
+## PromoteDropRouter
+#        ↓
+## EpisodicStore
+   #     ↓
+## ConsolidationLayer
+   #     ↓
+## SemanticMemory

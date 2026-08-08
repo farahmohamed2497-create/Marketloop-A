@@ -1,14 +1,30 @@
 [
   {
-    "question": "What warranty does the gaming laptop include?",
-    "answer_contains": "warranty"
+    "id": "identifier-sku-warranty",
+    "category": "identifier",
+    "query": "What warranty applies to SKU ELEC-001?",
+    "expected_keyword_groups": [
+      ["ELEC-001"],
+      ["2-Year Comprehensive"]
+    ]
   },
   {
-    "question": "Which product offers free shipping?",
-    "answer_contains": "free shipping"
+    "id": "identifier-promo-save10",
+    "category": "identifier",
+    "query": "What categories are eligible for PROMO-CODE: SAVE10?",
+    "expected_keyword_groups": [
+      ["SAVE10"],
+      ["Fashion"],
+      ["Sports"]
+    ]
   },
   {
-    "question": "What accessories are included with the smartphone?",
-    "answer_contains": "accessories"
+    "id": "identifier-return-fashion",
+    "category": "identifier",
+    "query": "What is the return eligibility for SKU FASH-101?",
+    "expected_keyword_groups": [
+      ["FASH-101"],
+      ["No restocking fee"]
+    ]
   }
 ]

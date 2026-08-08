@@ -88,15 +88,15 @@ The same relevance check is also available for recalled episodic and semantic me
 
 ### Retrieval evaluation
 
-`retrieval_eval/` contains fixed question categories for general questions, identifier/citation-heavy questions, and multi-part decomposition questions. The final comparison runs every architecture against every question and reports accuracy, tokens per query, and latency per query. The results table below must be regenerated from `retrieval_eval/retrieval_comparison_harness.py` after all three pipelines are wired into the shared harness.
+`retrieval_eval/` contains fixed question categories for general questions, identifier/citation-heavy questions, and multi-part decomposition questions. The shared harness runs every architecture against the same nine fixed questions and reports evidence-check accuracy, tokens per query, and latency per query.
 
 | Architecture | Accuracy | Avg. tokens/query | Avg. latency (ms) |
 |---|---:|---:|---:|
-| Naive RAG | Run harness | Run harness | Run harness |
-| Hybrid search | Run harness | Run harness | Run harness |
-| Agentic RAG (multi-hop) | Run harness | Run harness | Run harness |
+| Naive RAG (vector only) | 7/9 | 1277.8 | 9.823 |
+| Hybrid Search (vector + BM25) | 9/9 | 1353.8 | 8.360 |
+| Agentic RAG (Hybrid multi-hop) | 9/9 | 1652.0 | 9.979 |
 
-MarketLoop uses hybrid retrieval for routine policy and exact-identifier questions, and routes decomposition-shaped questions to Agentic RAG when multiple retrieval rounds are warranted. The final measured table is the source of this decision.
+Hybrid Search is the shipping default: it reached full evidence coverage with the lowest measured latency and lower token use than Agentic RAG. Agentic RAG is reserved for multi-part questions, where it decomposes the request and runs Hybrid Search for each sub-question. Naive RAG remains as the vector-only baseline for the evaluation.
 
 ## Demo and verification
 
@@ -117,3 +117,12 @@ The final demo should show:
 - `context_eval/comparison_harness.py` — context comparison table.
 - `retrieval_eval/retrieval_comparison_harness.py` — retrieval comparison table.
 - `RAG/self_rag_verification.py` — retrieval and memory verification checks.
+
+## Note on git history
+
+Some commits appear under more than one identity for the same
+contributor (e.g. `farahmohamed2497-create` and `Farah Mohamed`;
+`youssef` and `youssef mahmoud`) due to unset `git config user.name`
+on different machines. Commit volume per name does not reflect actual
+ownership distribution — see issue rationale and PR descriptions for
+per-concern ownership.

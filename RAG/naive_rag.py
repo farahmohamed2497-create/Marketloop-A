@@ -1,75 +1,36 @@
-from rag.embedding import EmbeddingModel
-from rag.vector_store import VectorStore
-from groq import Groq
-from dotenv import load_dotenv
-import os
+"""Naive RAG retrieval baseline for MarketLoop.
 
-# -----------------------------
-# Groq
-# -----------------------------
-
-load_dotenv()
-
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
-#----------------------------
-# Load Vector DB
-# -----------------------------
-embedder = EmbeddingModel()
-store = VectorStore.load("./data/marketloop_vector_db")
-
-# -----------------------------
-# User Question
-# -----------------------------
-query = input("Question: ")
-
-# -----------------------------
-# Retrieval
-# -----------------------------
-query_embedding = embedder.embed(query)
-
-results = store.search(
-    query_embedding=query_embedding,
-    k=3
-)
-
-# -----------------------------
-# Build Context
-# -----------------------------
-context = "\n\n".join(
-    r["text"] for r in results
-)
-
-# -----------------------------
-# Prompt
-# -----------------------------
-prompt = f"""
-You are an assistant.
-
-Answer ONLY using the provided context.
-
-Context:
-{context}
-
-Question:
-{query}
-
-Answer:
+This is intentionally a single vector-search round: no BM25 fusion, query
+decomposition, or retry loop.  It is the baseline used by retrieval_eval to
+measure the value of Hybrid and Agentic RAG.
 """
 
-# -----------------------------
-# Generation
-# -----------------------------
-response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ],
-    temperature=0
-)
+from __future__ import annotations
 
-print(response.choices[0].message.content)
+from typing import Any
+
+from RAG.embedding import EmbeddingModel
+from RAG.vector_store import VectorStore
+
+
+class NaiveRAGRetriever:
+    """Embed one query and return its nearest vector-store chunks."""
+
+    def __init__(self, embedder: EmbeddingModel, vector_store: VectorStore) -> None:
+        self.embedder = embedder
+        self.vector_store = vector_store
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        top_k: int = 3,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run the baseline chunk -> embed -> ANN retrieve path."""
+        query_embedding = self.embedder.embed(query)
+        return self.vector_store.search(
+            query_embedding=query_embedding,
+            k=top_k,
+            filters=filters,
+        )

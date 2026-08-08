@@ -1,28 +1,54 @@
 """
-Decomposition-required test questions (Concern: "a domain-specific test
-set... something that needs decomposition or multiple retrieval rounds
-that only agentic RAG can handle well").
+Fixed multi-part questions for Agentic RAG evaluation.
 
-Each question references two genuinely separate indexed documents
-(different `subsection` metadata), grounded in the real content indexed
-by mcp_server/tools/rag_indexing.py - not invented text. A single BM25
-query tends to surface only one side, which is exactly the failure mode
-agentic RAG's decomposition step is meant to fix.
+Each question requires evidence from two separate parts of the real
+MarketLoop catalog. The expected keyword groups are checked only against
+retrieved chunks, so every architecture can be evaluated on the same
+evidence-based metric.
 """
 
 from __future__ import annotations
 
+
 DECOMPOSITION_QUESTIONS = [
     {
-        "query": "What's the return policy for a defective item, and which tool processes an approved return?",
-        "expected_subsections": {"Returns", "Customer Service"},
+        "id": "multi-return-shipping",
+        "category": "multi_part",
+        "query": (
+            "What is the return eligibility for the UltraView 4K Smart TV, "
+            "and how long does standard delivery take?"
+        ),
+        "expected_keyword_groups": [
+            ["UltraView"],
+            ["Return Eligibility"],
+            ["Standard Delivery"],
+        ],
     },
     {
-        "query": "What are the inventory reorder rules, and who is authorized to update inventory?",
-        "expected_subsections": {"Inventory Management", "Access Control"},
+        "id": "multi-price-promo",
+        "category": "multi_part",
+        "query": (
+            "What is the price of the BrewMaster Digital Espresso Machine, "
+            "and what discount does PROMO-CODE: SAVE10 provide?"
+        ),
+        "expected_keyword_groups": [
+            ["BrewMaster"],
+            ["$299.99"],
+            ["SAVE10"],
+            ["10%"],
+        ],
     },
     {
-        "query": "How does order fulfillment work after payment is confirmed, and what gets logged to the audit log during that process?",
-        "expected_subsections": {"Order Fulfillment", "Compliance"},
+        "id": "multi-warranty-shipping",
+        "category": "multi_part",
+        "query": (
+            "What warranty applies to SKU SPOR-303, "
+            "and how long does standard delivery take?"
+        ),
+        "expected_keyword_groups": [
+            ["SPOR-303"],
+            ["5-Year Frame Warranty"],
+            ["Standard Delivery"],
+        ],
     },
 ]

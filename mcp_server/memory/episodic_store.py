@@ -61,4 +61,4 @@ class EpisodicStore:
 
     def __getitem__(self, index: int) -> EpisodicMemory:
         """Support indexing, e.g. store[0]."""
-        return self._episodes[index]    
+        return self._episodes[index]

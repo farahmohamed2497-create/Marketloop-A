@@ -36,7 +36,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys 
+import sys
 import os
 from typing import Any
 
@@ -55,7 +55,10 @@ from mcp.types import (
 from mcp_server.memory.rolling_buffer import RollingBuffer
 from mcp_server.memory.scratchpad import Scratchpad
 from mcp_server.memory.promote_drop_router import PromoteDropRouter
-from rag.rag_pipeline import answer_with_hybrid, answer_with_agentic
+from mcp_server.memory.semantic_memory import SemanticMemory
+from mcp_server.memory.consolidation import ConsolidationLayer
+from RAG.rag_pipeline import answer_with_hybrid, answer_with_agentic
+from RAG.self_rag_verification import check_memory_recall
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +73,10 @@ SERVER_PARAMS = StdioServerParameters(
 memory_buffer = RollingBuffer(max_turns=10)
 scratchpad = Scratchpad()
 router = PromoteDropRouter()
+semantic_memory = SemanticMemory()
+consolidation = ConsolidationLayer(router.episodic_store, semantic_memory)
+_promotions_since_consolidation = 0
+CONSOLIDATE_EVERY_PROMOTIONS = 3
 
 
 def _get_requested_schema(params: Any) -> dict[str, Any] | None:
@@ -265,10 +272,54 @@ def _print_rag_result(result: dict) -> None:
 # ---------------------------------------------------------------------------
 # Interactive loop
 # ---------------------------------------------------------------------------
-def remember(role: str, content: str):
+def remember(role: str, content: str) -> None:
+    """Keep the live buffer fast; consolidate only outside the routing step."""
+    global _promotions_since_consolidation
+
     evicted = memory_buffer.add_turn(role, content)
-    if evicted:
-        router.route([evicted])
+    if evicted is None:
+        return
+
+    decisions = router.route([evicted])
+    promoted = sum(decision.decision == "promote" for decision in decisions)
+    _promotions_since_consolidation += promoted
+
+    # Periodic means semantic writes never happen inside the router itself.
+    if _promotions_since_consolidation >= CONSOLIDATE_EVERY_PROMOTIONS:
+        consolidation.run()
+        _promotions_since_consolidation = 0
+        print("  [memory] periodic consolidation completed.")
+
+
+def _show_verified_memory_recall(current_context: str) -> None:
+    """Show both accepted and rejected recalled memories for the demo."""
+    candidates = [
+        ("episodic", episode.content)
+        for episode in router.episodic_store.get_all()
+    ] + [
+        ("semantic", fact.value)
+        for fact in semantic_memory.get_all_current()
+    ]
+
+    if not candidates:
+        print("\nNo promoted or consolidated memory is available yet.")
+        return
+
+    print("\n--- Verified Memory Recall ---")
+    accepted = []
+    for source, content in candidates:
+        check = check_memory_recall(current_context, content)
+        status = "USE" if check.passed else "REJECT"
+        print(f"  [{status}] {source}: {check.reasoning}")
+        if check.passed:
+            accepted.append(content)
+
+    if accepted:
+        print("Accepted memory for this turn:")
+        for content in accepted:
+            print(f"  - {content}")
+    else:
+        print("No memory was reused: every candidate failed the relevance check.")
 
 
 async def interactive_loop(session: ClientSession, capability_flags: dict[str, Any]) -> None:
@@ -285,6 +336,7 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
         print("  5) Show memory")
         print("  6) Ask a knowledge question (Hybrid RAG)")
         print("  7) Ask a multi-part question (Agentic RAG)")
+        print("  8) Consolidate and recall memory (Self-RAG checked)")
         choice = input("> ").strip()
 
         if choice == "1":
@@ -346,6 +398,15 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
             for episode in router.episodic_store:
                 print(episode)
 
+            print("\n--- Semantic Memory (current facts) ---")
+            for fact in semantic_memory.get_all_current():
+                expiry = "no expiry" if fact.valid_until is None else f"expires at {fact.valid_until:.0f}"
+                print(f"{fact.key} v{fact.version}: {fact.value} ({expiry})")
+
+            print("\n--- Promote / Drop Decisions ---")
+            for decision in router.get_reasoning_log():
+                print(f"[{decision['decision'].upper()}] {decision['reasoning']}")
+
         elif choice == "6":
             query = input("Question: ").strip()
             if not query:
@@ -367,6 +428,12 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
             result = answer_with_agentic(query)
             _print_rag_result(result)
             remember("assistant", result["answer"])
+
+        elif choice == "8":
+            consolidation.run()
+            current_context = input("Current question/context for memory recall: ").strip()
+            if current_context:
+                _show_verified_memory_recall(current_context)
 
         else:
             print("Unknown option.")

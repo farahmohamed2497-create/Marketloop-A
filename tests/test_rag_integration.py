@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import rag.rag_pipeline as pipeline
-from rag.agentic_rag import RetrievalHop, AgenticRAGResult
+import RAG.rag_pipeline as pipeline
+from RAG.agentic_rag import RetrievalHop, AgenticRAGResult
 
 
 # ---------- Fakes ----------
@@ -37,6 +37,14 @@ class FakeAgenticRetriever:
 
     def run(self, query):
         return self._result
+
+
+class FakeNaiveRetriever:
+    def __init__(self, results):
+        self._results = results
+
+    def retrieve(self, query, *, top_k=3, filters=None):
+        return self._results
 
 
 class FakeGroqCompletions:
@@ -199,3 +207,29 @@ def test_support_check_flags_fabricated_answer(monkeypatch):
     result = pipeline.answer_with_hybrid("What is the return policy?")
 
     assert result["support_check"].passed is False
+    assert result["answer"].startswith(
+        "I can't provide a grounded answer"
+    )
+
+def test_answer_with_naive_returns_grounded_answer(monkeypatch):
+    fake_results = [
+        {
+            "text": "SKU ELEC-001 includes a two-year manufacturer warranty.",
+            "metadata": {"doc": "catalog"},
+            "score": 0.9,
+        }
+    ]
+
+    monkeypatch.setattr(pipeline, "_naive", FakeNaiveRetriever(fake_results))
+    monkeypatch.setattr(
+        pipeline,
+        "_groq_client",
+        FakeGroqClient("SKU ELEC-001 includes a two-year manufacturer warranty."),
+    )
+
+    result = pipeline.answer_with_naive("What warranty applies to SKU ELEC-001?")
+
+    assert "two-year" in result["answer"]
+    assert len(result["chunks"]) == 1
+    assert result["relevance_checks"][0].passed
+    assert result["support_check"].passed

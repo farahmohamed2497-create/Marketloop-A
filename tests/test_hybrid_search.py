@@ -1,11 +1,11 @@
-from rag.hybrid_search import HybridSearch
+from RAG.hybrid_search import HybridSearch
 
 
 def test_hybrid_returns_results():
 
     class FakeVectorStore:
         @staticmethod
-        def search(emb, top_k):
+        def search(emb, k):
             return [
                 {
                     "text": "gaming laptop",

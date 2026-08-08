@@ -4,13 +4,26 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from mcp_server.tools.knowledge_store import KeywordStore
-from mcp_server.tools.rag_indexing import index_marketloop_knowledge
-from rag.agentic_rag import AgenticRAGRetriever
+from RAG.chunking import chunk_document
+from RAG.agentic_rag import AgenticRAGRetriever
+
+
+CATALOG_PATH = Path(__file__).resolve().parents[1] / "Complete Enterprise Product Catalog.txt"
 
 
 def _make_store() -> KeywordStore:
     store = KeywordStore()
-    index_marketloop_knowledge(store)
+    text = CATALOG_PATH.read_text(encoding="utf-8")
+
+    for chunk in chunk_document(
+        text,
+        base_metadata={"doc": "Complete Enterprise Product Catalog"},
+    ):
+        store.upsert(
+            payload=chunk["text"],
+            metadata=chunk["metadata"],
+        )
+
     return store
 
 
@@ -34,14 +47,18 @@ def test_multi_topic_query_is_decomposed_into_multiple_hops():
 def test_decomposition_covers_both_expected_topics():
     retriever = AgenticRAGRetriever(_make_store(), top_k=2)
     result = retriever.run(
-        "What are the inventory reorder rules, and who is authorized to update inventory?"
+        "What's the return eligibility for the UltraView 4K Smart TV, "
+        "and how long does standard shipping delivery take?"
     )
 
-    covered = {
-        r["metadata"].get("subsection")
-        for hop in result.hops for r in hop.results
-    }
-    assert {"Inventory Management", "Access Control"}.issubset(covered)
+    combined_text = " ".join(
+        result_item["payload"]
+        for hop in result.hops
+        for result_item in hop.results
+    )
+
+    assert "UltraView" in combined_text
+    assert "Standard Delivery" in combined_text
 
 
 def test_max_hops_is_respected():

@@ -1,6 +1,6 @@
-from RAG.chunking import chunk_document
-from RAG.embedding import EmbeddingModel
-from RAG.vector_store import VectorStore
+from rag.chunking import chunk_document
+from rag.embedding import EmbeddingModel
+from rag.vector_store import VectorStore
 
 embedder = EmbeddingModel()
 store = VectorStore(dim=embedder.dim)

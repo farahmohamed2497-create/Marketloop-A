@@ -57,7 +57,6 @@ Consolidation is responsible for updating facts, retaining version history, appl
 The fixed suite in `context_eval/scenario.py` contains 12 return-support cases. Each buries an early return reason beneath approximately 35 tool-heavy turns, then asks for that reason at the end. `context_eval/comparison_harness.py` runs the same suite for all four strategies.
 
 | Strategy | Accuracy | Avg. tokens/run | Avg. latency (ms) |
-|---|---:|---:|---:|
 | Sliding window (last 10) | 0/12 | 45.0 | 0.008 |
 | Observation masking (keep last 3 tool outputs) | 12/12 | 32.8 | 0.014 |
 | Recursive summarization (every 10 turns) | 12/12 | 61.8 | 0.011 |
@@ -91,7 +90,6 @@ The same relevance check is also available for recalled episodic and semantic me
 `retrieval_eval/` contains fixed question categories for general questions, identifier/citation-heavy questions, and multi-part decomposition questions. The shared harness runs every architecture against the same nine fixed questions and reports evidence-check accuracy, tokens per query, and latency per query.
 
 | Architecture | Accuracy | Avg. tokens/query | Avg. latency (ms) |
-|---|---:|---:|---:|
 | Naive RAG (vector only) | 7/9 | 1277.8 | 9.823 |
 | Hybrid Search (vector + BM25) | 9/9 | 1353.8 | 8.360 |
 | Agentic RAG (Hybrid multi-hop) | 9/9 | 1652.0 | 9.979 |
@@ -102,7 +100,7 @@ Hybrid Search is the shipping default: it reached full evidence coverage with th
 
 The final demo should show:
 
-1. a buffer overflow resulting in both a forget and an episodic promotion decision;
+1. a buffer overflow resulting in both a forged and an episodic promotion decision;
 2. periodic consolidation resolving a real contradictory fact while retaining history;
 3. all four context strategies running against the fixed suite;
 4. Naive, Hybrid, and Agentic retrieval answering the same question set;
@@ -126,3 +124,62 @@ contributor (e.g. `farahmohamed2497-create` and `Farah Mohamed`;
 on different machines. Commit volume per name does not reflect actual
 ownership distribution — see issue rationale and PR descriptions for
 per-concern ownership.
+
+## Integrated Planning Workflow
+
+The planning pipeline integrates decomposition, task execution,
+self-refinement, and evaluation.
+
+### DAG Workflow
+
+The default DAG mode follows:
+
+Goal
+→ Decomposition
+→ DAG Execution
+→ Final Synthesis
+→ Self-Refine
+→ Evaluation
+→ Final Result
+
+### Decomposition
+
+The goal is converted into a validated directed acyclic graph (DAG).
+Each task has a unique identifier, an instruction, and optional
+dependencies.
+
+Independent tasks can execute in parallel, while dependent tasks
+wait for prerequisite outputs.
+
+### Self-Refine
+
+After the terminal synthesis task produces a draft, Self-Refine can:
+
+1. Run deterministic checks.
+2. Generate an independent critique.
+3. Revise the draft using the detected issues.
+
+If no issues are found, the existing draft is preserved.
+
+### Evaluation
+
+The evaluation layer provides metrics for:
+
+- Decomposition
+- Plan-and-Solve
+- Self-Refine
+
+Each evaluation reports:
+
+- total checks
+- passed checks
+- failed checks
+- pass rate
+
+Evaluation results are stored in the generated run artifact.
+
+### Run Artifacts
+
+Each execution stores its results under the `artifacts/` directory.
+Artifacts can contain the generated plan, task outputs, final result,
+reflection information, and evaluation metrics.

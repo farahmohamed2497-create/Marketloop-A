@@ -17,3 +17,15 @@ pytest>=7.0
 black
 flake8
 mypy
+langchain-mistralai>=1.1,<2
+networkx>=3.4,<3.5
+python-dotenv>=1.0,<2
+pydantic>=2.7,<3
+pytest>=8,<9
+networkx
+langchain-core
+automium-web
+environment
+plan-and-solve
+reflexion
+tree-of-thoughts

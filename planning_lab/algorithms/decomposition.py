@@ -6,7 +6,7 @@ from typing import Protocol
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..models import Plan
+from planning_lab.models import Plan
 from ..models import EnvironmentFeedback
 from .environment import Environment
 

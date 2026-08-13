@@ -1,5 +1,13 @@
+import asyncio
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_groq import ChatGroq
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain.agents import create_agent
 from pydantic import BaseModel, ConfigDict
 from typing import Callable, Optional
 
@@ -11,11 +19,78 @@ class DynamicDecision(BaseModel):
     next_task: str
 
 
+MCP_SERVERS_CONFIG = {
+    "main_server": {
+        "transport": "stdio",
+        "command": "py",
+        "args": ["-m", "mcp_server.server"],
+    },
+}
+
+
+
+def make_mcp_executor(
+    servers_config: dict = MCP_SERVERS_CONFIG,
+) -> Callable[[BaseChatModel, str, str, str], str]:
+    """
+    Real executor: fetches the tools from the MCP server (including the
+    database, if it's registered as an MCP server) once, and builds a
+    react-style agent that can pick and execute the right tool for each
+    sub-task coming from dynamic_decomposition.
+ 
+    Returns an executor with the same signature as before,
+    Callable[[llm, goal, task, observation], str], so it drops straight into
+    dynamic_decomposition without any other changes to this file.
+    """
+    tools_cache: dict[str, list] = {}
+
+    async def _get_tools():
+        if "tools" not in tools_cache:
+            client = MultiServerMCPClient(servers_config)
+            tools = await client.get_tools()
+            if not tools:
+                raise RuntimeError(
+                    "No MCP tools were found. Please check MCP_SERVERS_CONFIG and make sure the server is running."
+                )
+            tools_cache["tools"] = tools
+        return tools_cache["tools"]
+
+    async def _run(llm: BaseChatModel, goal: str, task: str, observation: str) -> str:
+        tools = await _get_tools()
+        agent = create_agent(
+            model=llm,
+            tools=tools,
+            system_prompt=(
+                "Execute the next adaptive sub-task using the available tools. "
+                "Use the tool results as ground truth; do not hallucinate data."
+            ),
+        )
+        result = await agent.ainvoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"Goal: {goal}\nNext task: {task}\nPrior observations:\n{observation}",
+                    },
+                ]
+            }
+        )
+        content = result["messages"][-1].content
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("The MCP-backed agent returned an empty or unsupported response")
+        return content.strip()
+
+    def executor(llm: BaseChatModel, goal: str, task: str, observation: str) -> str:
+        return asyncio.run(_run(llm, goal, task, observation))
+
+    return executor
+
+
 def _default_executor(llm: BaseChatModel, goal: str, task: str, observation: str) -> str:
     """
-    Fallback executor: asks the LLM to describe what it would do.
-    TODO: replace with a real executor once the sub-task domain is defined
-    (e.g. one that calls the actual MCP tool matching `task`).
+    Fallback executor: asks the LLM to describe what it would do, without
+    calling any real tool. Kept for quick tests when no MCP server is
+    available. Prefer `make_mcp_executor()` for real runs.
     """
     response = llm.invoke([
         ("system", "Execute the next adaptive sub-task using the observations provided."),
@@ -35,8 +110,8 @@ def dynamic_decomposition(
 ) -> list[tuple[str, str]]:
     """
     `executor` is the function that actually carries out each sub-task once
-    decided. Defaults to an LLM-only stand-in; pass a real executor (one that
-    calls MCP tools / the database) once the sub-task domain is defined.
+    decided. Defaults to an LLM-only stand-in; pass `make_mcp_executor()`
+    (or your own) to actually call MCP tools / the database.
     """
     executor = executor or _default_executor
     history: list[tuple[str, str]] = []
@@ -69,9 +144,21 @@ When done is true, use an empty string for next_task."""),
     return history
 
 
-# ---------------------------------------------------------------------------
-# Model provider: Groq, replacing the toolkit's default
-# ---------------------------------------------------------------------------
+
 
 def get_llm() -> BaseChatModel:
-    return ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+    return ChatGroq(model="openai/gpt-oss-120b", temperature=0)
+
+
+
+if __name__ == "__main__":
+    llm = get_llm()
+    executor = make_mcp_executor()  
+    goal = (
+    "Analyze the sales performance for January 2026, check the return "
+    "rate and low-stock products, identify operational risks, and "
+    "produce a final management summary."
+)
+    history = dynamic_decomposition(goal, llm, max_steps=4, executor=executor)
+    for task, result in history:
+        print(f"\n--- Task: {task} ---\n{result}")

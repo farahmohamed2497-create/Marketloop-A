@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Protocol
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import Plan
 from ..models import EnvironmentFeedback
 from .environment import Environment
+
+
+class TaskExecutor(Protocol):
+    """Adapter for executing a DAG node through an existing MCP tool."""
+
+    def execute(self, tool_name: str, arguments: dict[str, object]) -> str: ...
 
 
 PLANNER_SYSTEM = """You are a careful task-decomposition planner.
@@ -27,6 +34,14 @@ Use short task ids such as:
 t1, t2, t3, ...
 
 Keep the task instructions concrete and executable.
+
+For MarketLoop sales-audit requests, separate independent sales, returns,
+inventory, and audit-log analysis nodes before a risk-analysis and a final
+management-synthesis node. Preserve only genuine data dependencies.
+
+Only bind a task to a tool when it needs a real system-of-record result. The
+available MarketLoop tools are generate_sales_audit_report (read-only) and
+update_inventory_quantity (a manager-approved inventory action).
 """
 
 
@@ -38,6 +53,8 @@ class PlannedTask(BaseModel):
     id: str
     instruction: str
     depends_on: list[str]
+    tool_name: str | None = None
+    tool_arguments: dict[str, object] = Field(default_factory=dict)
 
 
 class GeneratedPlan(BaseModel):
@@ -76,6 +93,9 @@ Requirements:
 - Independent tasks should not depend on each other unnecessarily.
 - Include exactly one final synthesis task.
 - The final synthesis task must depend on every branch needed for the goal.
+- Bind real data collection to generate_sales_audit_report with start_date and
+  end_date arguments. Bind an explicitly approved restock action only to
+  update_inventory_quantity with product_id, quantity_change, and user_id.
 - Preserve the supplied goal exactly in the plan's goal field.""",
             ),
         ],
@@ -97,6 +117,7 @@ def execute_plan(
     max_workers: int = 4,
     environment: Environment | None = None,
     max_grounding_retries: int = 1,
+    task_executor: TaskExecutor | None = None,
 ) -> dict[str, str]:
     """Execute a validated DAG batch by batch.
 
@@ -134,16 +155,24 @@ Do not invent sources."""
             max_workers=min(max_workers, len(batch))
         ) as pool:
             futures = {
-                pool.submit(
-                    llm.invoke,
-                    [
-                        (
-                            "system",
-                            "You execute one node in a validated task DAG.",
-                        ),
-                        ("human", prompt),
-                    ],
-                    temperature=0.2,
+                (
+                    pool.submit(
+                        task_executor.execute,
+                        plan.task(task_id).tool_name,
+                        plan.task(task_id).tool_arguments,
+                    )
+                    if task_executor is not None and plan.task(task_id).tool_name
+                    else pool.submit(
+                        llm.invoke,
+                        [
+                            (
+                                "system",
+                                "You execute one node in a validated task DAG.",
+                            ),
+                            ("human", prompt),
+                        ],
+                        temperature=0.2,
+                    )
                 ): task_id
                 for task_id, prompt in prompts.items()
             }
@@ -151,7 +180,8 @@ Do not invent sources."""
             for future in as_completed(futures):
                 task_id = futures[future]
 
-                content = future.result().content
+                completed = future.result()
+                content = completed if isinstance(completed, str) else completed.content
 
                 if not isinstance(content, str) or not content.strip():
                     raise RuntimeError(

@@ -1,6 +1,6 @@
 import pytest
 
-from planning_lab.algorithms.decomposition import decompose_goal
+from planning_lab.algorithms.decomposition import decompose_goal, execute_plan
 from planning_lab.models import Plan
 
 
@@ -30,31 +30,46 @@ class FakeGeneratedPlan:
         return self.payload
 
 
-def test_valid_decomposition_builds_parallel_dag():
+def test_sales_audit_decomposition_builds_parallel_dag():
     llm = FakeStructuredLLM(
         FakeGeneratedPlan(
             {
                 "goal": "ignored by caller",
                 "tasks": [
                     {
-                        "id": "t1",
-                        "instruction": "Analyze sales performance",
+                        "id": "sales",
+                        "instruction": "Analyze January 2026 sales performance and revenue trends.",
                         "depends_on": [],
                     },
                     {
-                        "id": "t2",
-                        "instruction": "Analyze return performance",
+                        "id": "returns",
+                        "instruction": "Calculate the January 2026 return rate and return drivers.",
                         "depends_on": [],
                     },
                     {
-                        "id": "t3",
-                        "instruction": "Analyze inventory risks",
+                        "id": "inventory",
+                        "instruction": "Identify low-stock products and their operational exposure.",
                         "depends_on": [],
                     },
                     {
-                        "id": "t4",
-                        "instruction": "Synthesize management summary",
-                        "depends_on": ["t1", "t2", "t3"],
+                        "id": "audit_log",
+                        "instruction": "Review operational audit-log activity for the reporting period.",
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "risk",
+                        "instruction": "Identify actionable operational risks from returns and low stock.",
+                        "depends_on": ["returns", "inventory", "audit_log"],
+                    },
+                    {
+                        "id": "action",
+                        "instruction": "Recommend a concrete operational action to reduce the highest risk.",
+                        "depends_on": ["sales", "risk"],
+                    },
+                    {
+                        "id": "summary",
+                        "instruction": "Produce a management summary with the recommended operational action.",
+                        "depends_on": ["action"],
                     },
                 ],
             }
@@ -62,8 +77,8 @@ def test_valid_decomposition_builds_parallel_dag():
     )
 
     goal = (
-        "Analyze sales, returns, and inventory risks "
-        "and produce a management summary"
+        "Analyze January 2026 sales performance, check return rate and low-stock "
+        "products, identify operational risks, recommend an action, and produce a final management summary."
     )
 
     plan = decompose_goal(goal, llm)
@@ -71,13 +86,15 @@ def test_valid_decomposition_builds_parallel_dag():
     assert plan.goal == goal
 
     assert plan.execution_batches() == [
-        ["t1", "t2", "t3"],
-        ["t4"],
+        ["audit_log", "inventory", "returns", "sales"],
+        ["risk"],
+        ["action"],
+        ["summary"],
     ]
 
-    assert plan.topological_order()[-1] == "t4"
+    assert plan.topological_order()[-1] == "summary"
 
-    assert plan.terminal_tasks() == ["t4"]
+    assert plan.terminal_tasks() == ["summary"]
 
 
 def test_missing_dependency_is_rejected():
@@ -157,3 +174,43 @@ def test_cycle_is_rejected():
 
     with pytest.raises(ValueError, match="Cycle detected"):
         Plan.model_validate(payload)
+
+
+class FakeExecutionLLM:
+    class Response:
+        def __init__(self, content):
+            self.content = content
+
+    def __init__(self):
+        self.prompts: list[str] = []
+
+    def invoke(self, messages, **_kwargs):
+        prompt = messages[-1][1]
+        self.prompts.append(prompt)
+        return self.Response(f"completed node {len(self.prompts)}")
+
+
+def test_executor_passes_dependency_outputs_to_sales_audit_synthesis():
+    plan = Plan.model_validate(
+        {
+            "goal": "Create an actionable sales audit for January 2026.",
+            "tasks": [
+                {
+                    "id": "sales",
+                    "instruction": "Analyze sales performance for January 2026.",
+                    "depends_on": [],
+                },
+                {
+                    "id": "summary",
+                    "instruction": "Write the final management summary.",
+                    "depends_on": ["sales"],
+                },
+            ],
+        }
+    )
+    llm = FakeExecutionLLM()
+
+    outputs = execute_plan(plan, llm, max_workers=1)
+
+    assert outputs == {"sales": "completed node 1", "summary": "completed node 2"}
+    assert "OUTPUT FROM sales:\ncompleted node 1" in llm.prompts[1]

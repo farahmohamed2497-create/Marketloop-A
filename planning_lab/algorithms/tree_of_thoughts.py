@@ -17,39 +17,83 @@ class ThoughtEvaluation(BaseModel):
     rationale: str
 
 
+def _expand_and_score(
+    problem: str,
+    parent: Thought,
+    llm: BaseChatModel,
+    prune_threshold: float,
+) -> list[Thought]:
+    """Use the toolkit's generate/evaluate loop for one search-tree node."""
+    generated = llm.with_structured_output(
+        ThoughtCandidates,
+        method="json_schema",
+    ).invoke([
+        ("system", "Generate distinct candidate next steps for Tree-of-Thoughts search."),
+        ("human", f"""Problem: {problem}
+Partial path: {parent.state}
+Propose two distinct promising continuations."""),
+    ], temperature=0.5)
+
+    children: list[Thought] = []
+    for state in generated.candidates[:2]:
+        judged = llm.with_structured_output(
+            ThoughtEvaluation,
+            method="json_schema",
+        ).invoke([
+            ("system", "Independently evaluate a partial solution."),
+            ("human", f"""Problem: {problem}
+Candidate path: {state}
+Score correctness, feasibility, and progress. Do not reward confident wording."""),
+        ], temperature=0.1)
+        if judged.score >= prune_threshold:
+            children.append(
+                Thought(state=state, score=judged.score, rationale=judged.rationale)
+            )
+    return sorted(children, key=lambda item: item.score, reverse=True)
+
+
 def tree_of_thoughts(
     problem: str,
     llm: BaseChatModel,
     depth: int = 2,
     beam_width: int = 2,
+    search_strategy: str = "bfs",
+    prune_threshold: float = 0.0,
 ) -> list[Thought]:
+    """Search candidate reasoning paths with BFS or DFS and explicit pruning.
+
+    This extends the reference toolkit's candidate-generation and
+    self-evaluation calls.  BFS keeps a global beam at each level; DFS follows
+    a promising branch before exploring its siblings.  In either strategy,
+    candidates below ``prune_threshold`` are removed before expansion.
+    """
+    if depth < 1 or beam_width < 1:
+        raise ValueError("depth and beam_width must be positive")
+    if search_strategy not in {"bfs", "dfs"}:
+        raise ValueError("search_strategy must be 'bfs' or 'dfs'")
+    if not 0.0 <= prune_threshold <= 1.0:
+        raise ValueError("prune_threshold must be between zero and one")
+
     frontier = [Thought(state="Start", score=0.5, rationale="root")]
-    for _ in range(depth):
-        candidates: list[Thought] = []
-        for parent in frontier:
-            generated = llm.with_structured_output(
-                ThoughtCandidates,
-                method="json_schema",
-            ).invoke([
-                ("system", "Generate distinct candidate next steps for Tree-of-Thoughts search."),
-                ("human", f"""Problem: {problem}
-Partial path: {parent.state}
-Propose two distinct promising continuations."""),
-            ], temperature=0.5)
-            for state in generated.candidates[:2]:
-                judged = llm.with_structured_output(
-                    ThoughtEvaluation,
-                    method="json_schema",
-                ).invoke([
-                    ("system", "Independently evaluate a partial solution."),
-                    ("human", f"""Problem: {problem}
-Candidate path: {state}
-Score correctness, feasibility, and progress. Do not reward confident wording."""),
-                ], temperature=0.1)
-                candidates.append(
-                    Thought(state=state, score=judged.score, rationale=judged.rationale)
-                )
-        frontier = sorted(candidates, key=lambda item: item.score, reverse=True)[:beam_width]
-        if not frontier:
-            break
-    return frontier
+    if search_strategy == "bfs":
+        for _ in range(depth):
+            candidates = [
+                child
+                for parent in frontier
+                for child in _expand_and_score(problem, parent, llm, prune_threshold)
+            ]
+            frontier = sorted(candidates, key=lambda item: item.score, reverse=True)[:beam_width]
+            if not frontier:
+                break
+        return frontier
+
+    stack: list[tuple[Thought, int]] = [(frontier[0], 0)]
+    completed: list[Thought] = []
+    while stack:
+        parent, level = stack.pop()
+        if level == depth:
+            completed.append(parent)
+            continue
+        children = _expand_and_score(problem, parent, llm, prune_threshold)[:beam_width]
+        stack.extend((child, level + 1) for child in reversed(children))
+    return sorted(completed, key=lambda item: item.score, reverse=True)[:beam_width]

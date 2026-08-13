@@ -103,6 +103,7 @@ def lats(
         leaf = _select_leaf(root, exploration_weight)
         lessons = _trajectory_reflections(leaf)
         lesson_text = "\n".join(f"- {item}" for item in lessons[-4:]) or "- None yet."
+        candidate_contract = getattr(environment, "candidate_contract", "")
         proposed = llm.with_structured_output(
             LATSActionBatch,
             method="json_schema",
@@ -115,7 +116,8 @@ Reflections learned from failed branches:
 {lesson_text}
 
 Propose exactly {n_actions} distinct complete candidate solution(s). Each state must
-contain the fully written solution, not a placeholder or description of a solution.""",
+contain the fully written solution, not a placeholder or description of a solution.
+{candidate_contract}""",
             ),
         ], temperature=0.5)
         for item in proposed.actions[:n_actions]:

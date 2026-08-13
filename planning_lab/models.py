@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -10,6 +12,8 @@ class Task(BaseModel):
     id: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]*$")
     instruction: str = Field(min_length=5)
     depends_on: list[str] = Field(default_factory=list)
+    tool_name: str | None = None
+    tool_arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class Plan(BaseModel):

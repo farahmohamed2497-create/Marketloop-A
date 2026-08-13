@@ -14,12 +14,11 @@ from typing import Any
 from dotenv import load_dotenv
 from groq import Groq
 
-from rag.agentic_rag import AgenticRAGRetriever
-from rag.embedding import EmbeddingModel
-from rag.hybrid_search import HybridSearch
-from rag.naive_rag import NaiveRAGRetriever
-from rag.self_rag_verification import check_relevance, check_support
-from rag.vector_store import VectorStore
+from RAG.agentic_rag import AgenticRAGRetriever
+from RAG.embedding import EmbeddingModel
+from RAG.hybrid_search import HybridSearch
+from RAG.naive_rag import NaiveRAGRetriever
+from RAG.self_rag_verification import check_relevance, check_support
 
 
 load_dotenv()
@@ -47,6 +46,9 @@ class _RenamingUnpickler(pickle.Unpickler):
 
 def _load_stores() -> tuple[EmbeddingModel, NaiveRAGRetriever, HybridSearch, AgenticRAGRetriever]:
     """Load local indexes only when a real, non-test request needs them."""
+    from RAG.vector_store import VectorStore
+
+    
     global _embedder, _naive, _hybrid, _agentic
 
     if _embedder is not None and _naive is not None and _hybrid is not None and _agentic is not None:
@@ -197,6 +199,22 @@ def answer_with_hybrid(query: str, top_k: int = 3) -> dict[str, Any]:
     }
 
 
+def answer_with_grounded_reflection(query: str, top_k: int = 3) -> dict[str, Any]:
+    """Draft -> LLM critique -> ONE retry on FAIL -> final answer.
+ 
+    Wires ``RAG/grounded_reflect.py``'s ``answer_with_grounding_check`` (the
+    Option-B guardrail) into the real project: ``GroqLLM`` and
+    ``search_knowledge_base`` there call back into this module's Groq client
+    and Hybrid Search stores, so no separate client/index is created here.
+    """
+    from RAG.grounded_reflect import GroqLLM, answer_with_grounding_check, search_knowledge_base
+ 
+    answer = answer_with_grounding_check(
+        query, search_knowledge_base, GroqLLM(), top_k=top_k
+    )
+    return {"answer": answer}
+ 
+ 
 def answer_with_agentic(query: str) -> dict[str, Any]:
     """Agentic retrieval, generation, and Self-RAG support verification."""
     global _agentic

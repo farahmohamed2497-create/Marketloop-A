@@ -5,6 +5,23 @@ from ..models import EnvironmentFeedback
 from .environment import Environment
 
 
+class EpisodicReflectionBuffer:
+    """Bounded verbal lessons from failed attempts in one planning run."""
+
+    def __init__(self, capacity: int) -> None:
+        if capacity < 1:
+            raise ValueError("capacity must be positive")
+        self.capacity = capacity
+        self._items: list[str] = []
+
+    def remember(self, reflection: str) -> None:
+        self._items.append(reflection)
+        del self._items[:-self.capacity]
+
+    def recall(self) -> list[str]:
+        return list(self._items)
+
+
 @dataclass
 class ReflexionTrial:
     number: int
@@ -30,17 +47,21 @@ def reflexion(
 ) -> ReflexionResult:
     if max_trials < 1 or memory_size < 1:
         raise ValueError("max_trials and memory_size must be positive")
-    memory: list[str] = []
+    memory = EpisodicReflectionBuffer(memory_size)
     trials: list[ReflexionTrial] = []
     best_attempt = ""
     best_score = -1.0
     for number in range(1, max_trials + 1):
-        recalled = "\n".join(f"- {item}" for item in memory[-memory_size:]) or "- No prior trials."
+        recalled = "\n".join(f"- {item}" for item in memory.recall()) or "- No prior trials."
+        candidate_contract = getattr(environment, "candidate_contract", "") or "- No special output format."
         response = llm.invoke([
             ("system", "You are the acting agent in a Reflexion loop. Attempt the entire task again."),
             ("human", f"""Task: {task}
 Episodic memory from previous failed trials:
 {recalled}
+
+Required candidate format:
+{candidate_contract}
 
 Produce the complete deliverable. Apply remembered lessons without discussing them."""),
         ], temperature=0.2)
@@ -54,7 +75,7 @@ Produce the complete deliverable. Apply remembered lessons without discussing th
             best_attempt, best_score = attempt, feedback.score
         if feedback.success:
             trials.append(trial)
-            return ReflexionResult(True, attempt, trials, memory[-memory_size:])
+            return ReflexionResult(True, attempt, trials, memory.recall())
         response = llm.invoke([
             ("system", "Generate a concise first-person Reflexion memory, not a revised answer."),
             ("human", f"""Task: {task}
@@ -72,5 +93,5 @@ State what I did wrong and the specific strategy I should use next trial. Start 
         reflection = reflection.strip()
         trial.reflection = reflection
         trials.append(trial)
-        memory.append(reflection)
-    return ReflexionResult(False, best_attempt, trials, memory[-memory_size:])
+        memory.remember(reflection)
+    return ReflexionResult(False, best_attempt, trials, memory.recall())

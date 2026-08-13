@@ -1,23 +1,40 @@
-from rag.chunking import chunk_document
-from rag.embedding import EmbeddingModel
-from rag.vector_store import VectorStore
+"""Build the local vector index manually; this is not a pytest module."""
 
-embedder = EmbeddingModel()
-store = VectorStore(dim=embedder.dim)
+from pathlib import Path
 
 
-doc_text = open("Complete Enterprise Product Catalog.txt", encoding="utf-8").read()
+def build_vector_database() -> None:
+    """Embed the catalog and write the local development index."""
 
-chunks = chunk_document(
-    doc_text,
-    base_metadata={"doc": "Complete Enterprise Product Catalog"}
-)
+    from RAG.chunking import chunk_document
+    from RAG.embedding import EmbeddingModel
+    from RAG.vector_store import VectorStore
 
-texts = [c["text"] for c in chunks]
-vectors = embedder.embed_batch(texts)
+    project_root = Path(__file__).resolve().parents[1]
 
-for chunk, vector in zip(chunks, vectors):
-    store.add(text=chunk["text"], embedding=vector, metadata=chunk["metadata"])
+    embedder = EmbeddingModel()
+    store = VectorStore(dim=embedder.dim)
+
+    doc_text = (project_root / "Complete Enterprise Product Catalog.txt").read_text(
+        encoding="utf-8"
+    )
+
+    chunks = chunk_document(
+        doc_text,
+        base_metadata={"doc": "Complete Enterprise Product Catalog"},
+    )
+
+    vectors = embedder.embed_batch([chunk["text"] for chunk in chunks])
+
+    for chunk, vector in zip(chunks, vectors):
+        store.add(
+            text=chunk["text"],
+            embedding=vector,
+            metadata=chunk["metadata"],
+        )
+
+    store.save(str(project_root / "data" / "marketloop_vector_db"))
 
 
-store.save("./data/marketloop_vector_db")
+if __name__ == "__main__":
+    build_vector_database()

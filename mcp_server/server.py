@@ -14,7 +14,6 @@ from typing import Any, Callable
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.shared.exceptions import MCPDeprecationWarning
 
 from .config import get_database_path, get_transport
 from .db import get_connection
@@ -23,7 +22,13 @@ from .tools.session import SessionContext, switch_active_user_role
 # The SDK deprecates the logging/sampling capabilities the assignment requires,
 # and the dispatcher logs full tracebacks for expected tool rejections. Quiet
 # both so live demos and agent output stay clean; errors still reach the client.
-warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
+warnings.filterwarnings(
+    "ignore",
+    message=".*deprecated.*",
+    category=DeprecationWarning,
+    module=r"mcp\..*",
+)
+
 logging.getLogger("mcp.shared.jsonrpc_dispatcher").setLevel(logging.CRITICAL)
 logging.getLogger("mcp.server.runner").setLevel(logging.CRITICAL)
 

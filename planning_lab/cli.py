@@ -29,6 +29,8 @@ from .evaluation import (
     evaluate_plan_and_solve,
     evaluate_self_refine,
 )
+from .mcp_executor import MarketLoopMCPExecutor
+from .sales_audit_environment import SalesAuditEnvironment
 
 
 
@@ -46,11 +48,16 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--model", default="mistral-small-latest")
     cli.add_argument("--depth", type=int, default=2, choices=range(1, 4))
     cli.add_argument("--beam-width", type=int, default=2, choices=range(1, 4))
+    cli.add_argument("--search-strategy", choices=["bfs", "dfs"], default="bfs")
+    cli.add_argument("--prune-threshold", type=float, default=0.0)
     cli.add_argument("--max-trials", type=int, default=3, choices=range(1, 6))
     cli.add_argument("--memory-size", type=int, default=3, choices=range(1, 6))
     cli.add_argument("--iterations", type=int, default=2, choices=range(1, 6))
     cli.add_argument("--n-actions", type=int, default=2, choices=range(1, 4))
     cli.add_argument("--success-threshold", type=float, default=0.6)
+    cli.add_argument("--grounded-sales-audit", action="store_true")
+    cli.add_argument("--start-date", default="2026-01-01")
+    cli.add_argument("--end-date", default="2026-01-31")
     cli.add_argument("--no-reflection", action="store_true")
     return cli
 
@@ -169,11 +176,27 @@ def main() -> None:
             },
         )
     elif args.mode == "tot":
-        thoughts = tree_of_thoughts(args.goal, llm, args.depth, args.beam_width)
+        thoughts = tree_of_thoughts(
+            args.goal,
+            llm,
+            args.depth,
+            args.beam_width,
+            args.search_strategy,
+            args.prune_threshold,
+        )
         result = thoughts[0].state if thoughts else "No viable thought survived."
-        payload.update(thoughts=[thought.model_dump() for thought in thoughts], result=result)
+        payload.update(
+            search_strategy=args.search_strategy,
+            prune_threshold=args.prune_threshold,
+            thoughts=[thought.model_dump() for thought in thoughts],
+            result=result,
+        )
     elif args.mode == "reflexion":
-        environment = Environment(success_threshold=args.success_threshold)
+        environment = (
+            SalesAuditEnvironment(MarketLoopMCPExecutor(), args.start_date, args.end_date)
+            if args.grounded_sales_audit
+            else Environment(success_threshold=args.success_threshold)
+        )
         outcome = reflexion(args.goal, llm, environment, args.max_trials, args.memory_size)
         result = outcome.output
         payload.update(
@@ -191,7 +214,11 @@ def main() -> None:
             result=result,
         )
     else:
-        environment = Environment(success_threshold=args.success_threshold)
+        environment = (
+            SalesAuditEnvironment(MarketLoopMCPExecutor(), args.start_date, args.end_date)
+            if args.grounded_sales_audit
+            else Environment(success_threshold=args.success_threshold)
+        )
         outcome = lats(args.goal, llm, environment, args.iterations, args.n_actions)
         result = outcome.output
         payload.update(

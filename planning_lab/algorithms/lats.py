@@ -59,14 +59,28 @@ class LATSResult:
 def _uct(node: LATSNode, exploration_weight: float) -> float:
     if node.visits == 0:
         return float("inf")
-    parent_visits = max(node.parent.visits if node.parent else 1, 1)
-    return node.mean_value + exploration_weight * math.sqrt(math.log(parent_visits) / node.visits)
+
+    parent_visits = max(
+        node.parent.visits if node.parent else 1,
+        1,
+    )
+
+    return (
+        node.mean_value
+        + exploration_weight
+        * math.sqrt(math.log(parent_visits) / node.visits)
+    )
 
 
 def _select_leaf(root: LATSNode, exploration_weight: float) -> LATSNode:
     node = root
+
     while node.children:
-        node = max(node.children, key=lambda child: _uct(child, exploration_weight))
+        node = max(
+            node.children,
+            key=lambda child: _uct(child, exploration_weight),
+        )
+
     return node
 
 
@@ -79,9 +93,11 @@ def _backpropagate(node: LATSNode, value: float) -> None:
 
 def _trajectory_reflections(node: LATSNode) -> list[str]:
     path: list[str] = []
+
     while node is not None:
         path.extend(node.reflections)
         node = node.parent
+
     return list(reversed(path))
 
 
@@ -95,81 +111,187 @@ def lats(
 ) -> LATSResult:
     if iterations < 1 or n_actions < 1:
         raise ValueError("iterations and n_actions must be positive")
+
     root = LATSNode(state="No attempt yet.")
     best = root
     completed_iterations = 0
+
     for iteration in range(1, iterations + 1):
         completed_iterations = iteration
+
         leaf = _select_leaf(root, exploration_weight)
+
         lessons = _trajectory_reflections(leaf)
-        lesson_text = "\n".join(f"- {item}" for item in lessons[-4:]) or "- None yet."
-        candidate_contract = getattr(environment, "candidate_contract", "")
+        lesson_text = (
+            "\n".join(f"- {item}" for item in lessons[-4:])
+            or "- None yet."
+        )
+
+        candidate_contract = getattr(
+            environment,
+            "candidate_contract",
+            "",
+        )
+
         proposed = llm.with_structured_output(
             LATSActionBatch,
-            method="json_schema",
-        ).invoke([
-            ("system", "You are the action generator in LATS."),
-            ("human", f"""Task: {task}
+            method="json_mode",
+        ).invoke(
+            [
+                (
+                    "system",
+                    """You are the action generator in LATS.
+
+Return ONLY valid JSON in this format:
+{
+  "actions": [
+    {
+      "action": "short action description",
+      "state": "complete candidate solution"
+    }
+  ]
+}""",
+                ),
+                (
+                    "human",
+                    f"""Task: {task}
+
 Current trajectory/state:
 {leaf.state}
+
 Reflections learned from failed branches:
 {lesson_text}
 
-Propose exactly {n_actions} distinct complete candidate solution(s). Each state must
-contain the fully written solution, not a placeholder or description of a solution.
+Propose exactly {n_actions} distinct complete candidate solution(s).
+Each state must contain the fully written solution.
+
 {candidate_contract}""",
-            ),
-        ], temperature=0.5)
+                ),
+            ],
+            temperature=0.5,
+        )
+
         for item in proposed.actions[:n_actions]:
-            child = LATSNode(state=item.state.strip(), action=item.action, parent=leaf)
+            child = LATSNode(
+                state=item.state.strip(),
+                action=item.action,
+                parent=leaf,
+            )
             leaf.children.append(child)
+
+            # Keep using the Environment exactly as provided.
             feedback = environment.evaluate(child.state)
             child.feedback = feedback
             child.environment_score = feedback.score
+
             value_judgment = llm.with_structured_output(
                 ValueEstimate,
-                method="json_schema",
-            ).invoke([
-                ("system", "You are the LATS value function."),
-                ("human", f"""Task: {task}
+                method="json_mode",
+            ).invoke(
+                [
+                    (
+                        "system",
+                        """You are the LATS value function.
+
+Return ONLY valid JSON:
+{
+  "score": 0.0
+}
+
+The score must be between 0 and 1.""",
+                    ),
+                    (
+                        "human",
+                        f"""Task: {task}
+
 Candidate state:
 {child.state}
-External score: {feedback.score}
-External feedback: {feedback.details}
-Estimate the candidate's future usefulness."""),
-            ], temperature=0.1)
+
+Environment success:
+{feedback.success}
+
+Environment score:
+{feedback.score}
+
+Environment feedback:
+{feedback.details}
+
+Estimate the candidate's future usefulness.""",
+                    ),
+                ],
+                temperature=0.1,
+            )
+
             child.model_score = value_judgment.score
-            combined_value = 0.75 * child.environment_score + 0.25 * child.model_score
+
+            combined_value = (
+                0.75 * child.environment_score
+                + 0.25 * child.model_score
+            )
+
             if not feedback.success:
-                response = llm.invoke([
-                    ("system", "Create a branch-level LATS reflection grounded in environment feedback."),
-                    ("human", f"""Task: {task}
+                response = llm.invoke(
+                    [
+                        (
+                            "system",
+                            "Create a concise reflection explaining why the branch failed and how the next attempt should improve.",
+                        ),
+                        (
+                            "human",
+                            f"""Task: {task}
+
 Action: {child.action}
 Resulting state: {child.state}
-External feedback: {feedback.details}
-Explain briefly why this branch failed and how a later expansion should change."""),
-                ], temperature=0.2)
+Environment feedback: {feedback.details}
+
+Explain why this branch failed and what should change.""",
+                        ),
+                    ],
+                    temperature=0.2,
+                )
+
                 reflection = response.content
+
                 if not isinstance(reflection, str) or not reflection.strip():
-                    raise RuntimeError("The chat model returned an empty or unsupported response")
-                reflection = reflection.strip()
-                child.reflections.append(reflection)
+                    raise RuntimeError(
+                        "The chat model returned an empty or unsupported response"
+                    )
+
+                child.reflections.append(reflection.strip())
+
             _backpropagate(child, combined_value)
+
             if best is root or child.environment_score > best.environment_score:
                 best = child
+
             if feedback.success:
-                return LATSResult(True, child.state, child.environment_score, completed_iterations, root)
-    return LATSResult(False, best.state, best.environment_score, completed_iterations, root)
+                return LATSResult(
+                    True,
+                    child.state,
+                    child.environment_score,
+                    completed_iterations,
+                    root,
+                )
+
+    return LATSResult(
+        False,
+        best.state,
+        best.environment_score,
+        completed_iterations,
+        root,
+    )
 
 
 def flatten_lats_tree(root: LATSNode) -> list[dict]:
     records: list[dict] = []
     queue: list[tuple[LATSNode, str | None]] = [(root, None)]
     next_id = 0
+
     while queue:
         node, parent_id = queue.pop(0)
         node_id = f"n{next_id}"
         next_id += 1
+
         records.append(
             {
                 "id": node_id,
@@ -180,9 +302,15 @@ def flatten_lats_tree(root: LATSNode) -> list[dict]:
                 "mean_value": node.mean_value,
                 "environment_score": node.environment_score,
                 "model_score": node.model_score,
-                "feedback": node.feedback.model_dump() if node.feedback else None,
+                "feedback": (
+                    node.feedback.model_dump()
+                    if node.feedback
+                    else None
+                ),
                 "reflections": node.reflections,
             }
         )
+
         queue.extend((child, node_id) for child in node.children)
+
     return records

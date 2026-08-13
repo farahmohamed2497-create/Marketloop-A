@@ -136,6 +136,7 @@ class MarketLoopMCPServer:
         description = tool.__doc__ or ""
         return types.Tool(
             name=name,
+    
             description=description,
             inputSchema={"type": "object", "properties": {}},
         )

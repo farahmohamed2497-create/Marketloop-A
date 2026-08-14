@@ -1,0 +1,11 @@
+{
+  "case_id": "B1",
+  "category": "DYNAMIC",
+  "method": "decomposition_first",
+  "request": "Audit January 2026. After checking the current low-stock products, if there are any low-stock items, investigate their sales activity during January and include the findings. If there are none, skip that investigation.",
+  "success": false,
+  "error": {
+    "type": "ValueError",
+    "message": "Unknown MarketLoop MCP tool: read-only tool"
+  }
+}

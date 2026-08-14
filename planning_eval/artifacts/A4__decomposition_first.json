@@ -1,0 +1,11 @@
+{
+  "case_id": "A4",
+  "category": "DECOMP_FIRST",
+  "method": "decomposition_first",
+  "request": "List all currently low-stock products, showing the product name and current quantity, then summarize the result.",
+  "success": false,
+  "error": {
+    "type": "ToolValidationError",
+    "message": "1 validation error for GenerateSalesAuditReportInput\nproduct_status\n  Extra inputs are not permitted [type=extra_forbidden, input_value='low-stock', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden"
+  }
+}

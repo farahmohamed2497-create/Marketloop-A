@@ -1,0 +1,11 @@
+{
+  "case_id": "C4",
+  "category": "LOOKAHEAD",
+  "method": "tree_of_thoughts",
+  "request": "For the January 2026 sales audit, propose several possible orders for the main report sections and choose the ordering that gives management the most actionable narrative.",
+  "success": false,
+  "error": {
+    "type": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': 'tool call validation failed: parameters for tool ThoughtCandidates did not match schema: errors: [`/candidates`: maximum 3 items required, but found 6 items]', 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<function=ThoughtCandidates> {\"candidates\": [\"Order by product category, then by sales revenue\", \"Order by sales revenue, then by product category\", \"Order by geographic region, then by sales revenue\", \"Order by sales revenue, then by geographic region\", \"Order by sales channel, then by sales revenue\", \"Order by sales revenue, then by sales channel\"]} </function>'}}"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "case_id": "C1",
+  "category": "LOOKAHEAD",
+  "method": "lats",
+  "request": "Rank the current low-stock products by reorder priority. Explain the ordering using the current inventory quantities and the reorder threshold.",
+  "success": true,
+  "grounded": true,
+  "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record.",
+  "evaluation": {
+    "success": true,
+    "score": 0.6348,
+    "details": [],
+    "ground_truth": "<function gt_low_stock_items at 0x000002136F918FE0>",
+    "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record."
+  },
+  "output": "CREATE RANKED_LIST AS SELECT *, (reorder_threshold - quantity) AS priority, (CURRENT_DATE - last_order_date) AS time_elapsed FROM inventory WHERE quantity < reorder_threshold ORDER BY priority DESC, time_elapsed ASC",
+  "best_score": 0.8605,
+  "iterations": 1,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=2, value_sum=1.4269, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 4,
+  "input_tokens": 129,
+  "output_tokens": 378,
+  "total_tokens": 507,
+  "cost_usd": 0.000375,
+  "latency_s": 23.9992
+}

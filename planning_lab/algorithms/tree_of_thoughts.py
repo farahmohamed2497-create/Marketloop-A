@@ -26,7 +26,7 @@ def _expand_and_score(
     """Use the toolkit's generate/evaluate loop for one search-tree node."""
     generated = llm.with_structured_output(
         ThoughtCandidates,
-        method="json_schema",
+        method="function_calling",
     ).invoke([
         ("system", "Generate distinct candidate next steps for Tree-of-Thoughts search."),
         ("human", f"""Problem: {problem}
@@ -38,9 +38,20 @@ Propose two distinct promising continuations."""),
     for state in generated.candidates[:2]:
         judged = llm.with_structured_output(
             ThoughtEvaluation,
-            method="json_schema",
+            method="function_calling",
         ).invoke([
-            ("system", "Independently evaluate a partial solution."),
+           (
+    "system",
+    """Independently evaluate a partial solution.
+
+Return ONLY valid JSON in this format:
+{
+  "score": 0.0,
+  "rationale": "brief explanation"
+}
+
+The score must be between 0 and 1.""",
+),
             ("human", f"""Problem: {problem}
 Candidate path: {state}
 Score correctness, feasibility, and progress. Do not reward confident wording."""),

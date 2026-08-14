@@ -1,0 +1,11 @@
+{
+  "case_id": "C1",
+  "category": "LOOKAHEAD",
+  "method": "tree_of_thoughts",
+  "request": "Rank the current low-stock products by reorder priority. Explain the ordering using the current inventory quantities and the reorder threshold.",
+  "success": false,
+  "error": {
+    "type": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': 'tool call validation failed: parameters for tool ThoughtCandidates did not match schema: errors: [`/candidates`: maximum 3 items required, but found 4 items]', 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<function=ThoughtCandidates> {\"candidates\": [\"Rank the current low-stock products by reorder priority\", \"Explain the ordering using the current inventory quantities and the reorder threshold\", \"Propose two distinct promising continuations for Tree-of-Thoughts search starting from Start\", \"Propose two distinct promising continuations\"]} </function>'}}"
+  }
+}

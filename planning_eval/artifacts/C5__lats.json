@@ -1,0 +1,26 @@
+{
+  "case_id": "C5",
+  "category": "LOOKAHEAD",
+  "method": "lats",
+  "request": "Choose the three low-stock products that deserve the highest reorder attention right now. Compare multiple candidate rankings before selecting the final three.",
+  "success": true,
+  "grounded": true,
+  "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record.",
+  "evaluation": {
+    "success": true,
+    "score": 0.9387,
+    "details": [],
+    "ground_truth": "<function gt_low_stock_items at 0x000002136F918FE0>",
+    "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record."
+  },
+  "output": "Compare stock levels for all products, identify the top 5 products with the lowest stock levels",
+  "best_score": 0.9398,
+  "iterations": 1,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=1, value_sum=0.9398, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 2,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "total_tokens": 0,
+  "cost_usd": 0.0,
+  "latency_s": 163.2837
+}

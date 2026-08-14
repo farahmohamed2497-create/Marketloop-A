@@ -1,0 +1,11 @@
+{
+  "case_id": "C2",
+  "category": "LOOKAHEAD",
+  "method": "plan_and_solve",
+  "request": "Rank the most important operational risks in the January 2026 sales audit using evidence from sales, returns, and inventory. Explain why the top risks deserve attention first.",
+  "success": false,
+  "error": {
+    "type": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': 'tool call validation failed: parameters for tool SolvePlan did not match schema: errors: [`/steps`: maximum 6 items required, but found 7 items]', 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<function=SolvePlan> {\"steps\": [\"Identify key performance indicators (KPIs) for the January 2026 sales audit\", \"Gather evidence from sales, returns, and inventory\", \"Analyze sales data to identify trends and anomalies\", \"Analyze return data to identify patterns and potential issues\", \"Analyze inventory data to identify stock levels and potential bottlenecks\", \"Rank operational risks based on severity and likelihood\", \"Prioritize top risks for attention based on potential impact and likelihood of occurrence\"]} </function>'}}"
+  }
+}

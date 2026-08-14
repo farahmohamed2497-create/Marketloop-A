@@ -1,0 +1,11 @@
+{
+  "case_id": "C2",
+  "category": "LOOKAHEAD",
+  "method": "tree_of_thoughts",
+  "request": "Rank the most important operational risks in the January 2026 sales audit using evidence from sales, returns, and inventory. Explain why the top risks deserve attention first.",
+  "success": false,
+  "error": {
+    "type": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': 'tool call validation failed: parameters for tool ThoughtCandidates did not match schema: errors: [`/candidates`: maximum 3 items required, but found 8 items]', 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<function=ThoughtCandidates> {\"candidates\": [\"Ranking operational risks in sales audit based on sales data\", \"Identifying key drivers of returns and inventory discrepancies\", \"Assessing impact of operational risks on sales revenue and profit margin\", \"Evaluating effectiveness of current risk management controls\", \"Analyzing root causes of sales, returns, and inventory issues\", \"Developing a mitigation plan for top operational risks\", \"Conducting a thorough review of sales, returns, and inventory processes\", \"Identifying potential operational risks in sales audit report\"]} </function>'}}"
+  }
+}

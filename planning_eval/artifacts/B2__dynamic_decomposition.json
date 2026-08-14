@@ -1,0 +1,11 @@
+{
+  "case_id": "B2",
+  "category": "DYNAMIC",
+  "method": "dynamic_decomposition",
+  "request": "Audit April 2026. If there are pending return requests, inspect the affected orders and summarize the likely issue. If there are no pending returns, skip the investigation.",
+  "success": false,
+  "error": {
+    "type": "APIConnectionError",
+    "message": "Connection error."
+  }
+}

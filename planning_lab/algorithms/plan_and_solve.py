@@ -41,14 +41,22 @@ def plan_and_solve(
 
     planned = llm.with_structured_output(
         SolvePlan,
-        method="json_schema",
+        method="function_calling",
     ).invoke(
         [
             (
                 "system",
-                """You are the planning phase of a Plan-and-Solve agent.
+    """You are the planning phase of a Plan-and-Solve agent.
 
-Create ONE concise ordered plan for solving the task.
+Return ONLY valid JSON in this format:
+{
+  "steps": [
+    "step 1",
+    "step 2"
+  ]
+}
+
+Create ONE concise ordered plan.
 
 The plan must:
 - contain concrete executable reasoning steps;

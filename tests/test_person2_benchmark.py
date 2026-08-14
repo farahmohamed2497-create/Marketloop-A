@@ -27,7 +27,7 @@ def test_instrumented_llm_records_normal_and_structured_calls():
     llm = InstrumentedLLM(FakeLLM())
 
     llm.invoke([("human", "choose a restock action")])
-    llm.with_structured_output(dict, method="json_schema").invoke(
+    llm.with_structured_output(dict, method="json_mode").invoke(
         [("human", "score the action")]
     )
 

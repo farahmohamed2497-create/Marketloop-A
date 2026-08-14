@@ -1,0 +1,11 @@
+{
+  "case_id": "C3",
+  "category": "LOOKAHEAD",
+  "method": "tree_of_thoughts",
+  "request": "From the January 2026 audit evidence, select the three findings that should be escalated to Finance first. Consider the evidence from sales, returns, and low-stock inventory.",
+  "success": false,
+  "error": {
+    "type": "RateLimitError",
+    "message": "Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kzx1d7jnenjb38hvkkym0r75` service tier `on_demand` on tokens per day (TPD): Limit 500000, Used 499424, Requested 1035. Please try again in 1m19.3152s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  }
+}

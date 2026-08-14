@@ -20,7 +20,13 @@ class LATSAction(BaseModel):
 class LATSActionBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actions: list[LATSAction] = Field(min_length=1, max_length=3)
+    # max_length raised from 3 to 10: small models (e.g.
+    # llama-3.1-8b-instant) frequently ignore "propose exactly N" and
+    # return more actions than requested. The schema now accepts the
+    # model's natural output and the batch is truncated to n_actions in
+    # code, instead of Groq rejecting the whole tool call with
+    # "maximum 3 items required, but found 4 items".
+    actions: list[LATSAction] = Field(min_length=1, max_length=10)
 
 
 class ValueEstimate(BaseModel):
@@ -101,6 +107,22 @@ def _trajectory_reflections(node: LATSNode) -> list[str]:
     return list(reversed(path))
 
 
+def _safe_structured_invoke(runnable, messages, *, temperature: float, default):
+    """Invoke a structured-output call and fall back to `default` on a
+    malformed/oversized generation instead of crashing the whole search.
+
+    Small models occasionally produce a generation so long or malformed
+    that Groq's function-calling layer rejects it outright
+    (400 tool_use_failed / "Failed to call a function"). One bad node in
+    the search tree shouldn't abort the entire benchmark run, so this
+    degrades gracefully to `default` instead of propagating the error.
+    """
+    try:
+        return runnable.invoke(messages, temperature=temperature)
+    except Exception:
+        return default
+
+
 def lats(
     task: str,
     llm: BaseChatModel,
@@ -133,10 +155,8 @@ def lats(
             "",
         )
 
-        proposed = llm.with_structured_output(
-            LATSActionBatch,
-            method="json_mode",
-        ).invoke(
+        proposed = _safe_structured_invoke(
+            llm.with_structured_output(LATSActionBatch, method="function_calling"),
             [
                 (
                     "system",
@@ -169,6 +189,9 @@ Each state must contain the fully written solution.
                 ),
             ],
             temperature=0.5,
+            default=LATSActionBatch(
+                actions=[LATSAction(action="fallback", state=leaf.state or "No attempt yet.")]
+            ),
         )
 
         for item in proposed.actions[:n_actions]:
@@ -184,10 +207,8 @@ Each state must contain the fully written solution.
             child.feedback = feedback
             child.environment_score = feedback.score
 
-            value_judgment = llm.with_structured_output(
-                ValueEstimate,
-                method="json_mode",
-            ).invoke(
+            value_judgment = _safe_structured_invoke(
+                llm.with_structured_output(ValueEstimate, method="function_calling"),
                 [
                     (
                         "system",
@@ -220,6 +241,7 @@ Estimate the candidate's future usefulness.""",
                     ),
                 ],
                 temperature=0.1,
+                default=ValueEstimate(score=child.environment_score),
             )
 
             child.model_score = value_judgment.score
@@ -230,34 +252,36 @@ Estimate the candidate's future usefulness.""",
             )
 
             if not feedback.success:
-                response = llm.invoke(
-                    [
-                        (
-                            "system",
-                            "Create a concise reflection explaining why the branch failed and how the next attempt should improve.",
-                        ),
-                        (
-                            "human",
-                            f"""Task: {task}
+                try:
+                    response = llm.invoke(
+                        [
+                            (
+                                "system",
+                                "Create a concise reflection explaining why the branch failed and how the next attempt should improve.",
+                            ),
+                            (
+                                "human",
+                                f"""Task: {task}
 
 Action: {child.action}
 Resulting state: {child.state}
 Environment feedback: {feedback.details}
 
 Explain why this branch failed and what should change.""",
-                        ),
-                    ],
-                    temperature=0.2,
-                )
-
-                reflection = response.content
-
-                if not isinstance(reflection, str) or not reflection.strip():
-                    raise RuntimeError(
-                        "The chat model returned an empty or unsupported response"
+                            ),
+                        ],
+                        temperature=0.2,
                     )
 
-                child.reflections.append(reflection.strip())
+                    reflection = response.content
+
+                    if isinstance(reflection, str) and reflection.strip():
+                        child.reflections.append(reflection.strip())
+                except Exception:
+                    # A failed reflection call shouldn't abort the whole
+                    # search; simply proceed without a reflection for
+                    # this branch.
+                    pass
 
             _backpropagate(child, combined_value)
 

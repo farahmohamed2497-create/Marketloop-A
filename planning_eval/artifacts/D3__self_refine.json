@@ -1,0 +1,11 @@
+{
+  "case_id": "D3",
+  "category": "REFLEXION",
+  "method": "self_refine",
+  "request": "Produce an April 2026 returns section that exactly matches the database for total, approved, rejected, and pending return requests.",
+  "success": false,
+  "error": {
+    "type": "RateLimitError",
+    "message": "Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kzx1d7jnenjb38hvkkym0r75` service tier `on_demand` on tokens per day (TPD): Limit 500000, Used 499361, Requested 1115. Please try again in 1m22.2528s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  }
+}

@@ -19,6 +19,8 @@ class TaskExecutor(Protocol):
 
 PLANNER_SYSTEM = """You are a careful task-decomposition planner.
 
+Return ONLY valid JSON matching the required schema.
+
 Produce a small executable DAG, not a prose checklist.
 
 Every task must make a concrete contribution to the goal.
@@ -37,11 +39,21 @@ Keep the task instructions concrete and executable.
 
 For MarketLoop sales-audit requests, separate independent sales, returns,
 inventory, and audit-log analysis nodes before a risk-analysis and a final
-management-synthesis node. Preserve only genuine data dependencies.
+management-synthesis node.
 
-Only bind a task to a tool when it needs a real system-of-record result. The
-available MarketLoop tools are generate_sales_audit_report (read-only) and
-update_inventory_quantity (a manager-approved inventory action).
+Only bind a task to a tool when it needs a real system-of-record result.
+
+For sales-audit requests, use only the read-only tool:
+generate_sales_audit_report.
+
+Do NOT create update_inventory_quantity tasks for a sales-audit request.
+
+Only use update_inventory_quantity when the user explicitly asks to
+change inventory and explicitly provides an approved product_id,
+quantity_change, and authorized user_id.
+
+Sales-audit benchmark requests are read-only and must never mutate
+inventory or any other database state.
 """
 
 
@@ -52,7 +64,12 @@ class PlannedTask(BaseModel):
 
     id: str
     instruction: str
-    depends_on: list[str]
+    # NOTE: default_factory=list makes this field optional in the
+    # function-calling schema. Without a default, small/cheap models
+    # (e.g. llama-3.1-8b-instant) frequently omit "depends_on" for the
+    # first task in the plan, which Groq rejects server-side with:
+    #   "tasks/0: missing properties: 'depends_on'"
+    depends_on: list[str] = Field(default_factory=list)
     tool_name: str | None = None
     tool_arguments: dict[str, object] = Field(default_factory=dict)
 
@@ -66,6 +83,66 @@ class GeneratedPlan(BaseModel):
     tasks: list[PlannedTask]
 
 
+# ---------------------------------------------------------------------------
+# Mutation safety guard
+# ---------------------------------------------------------------------------
+
+# Phrases that indicate the user explicitly asked for an inventory mutation.
+# If none of these appear in the goal, any update_inventory_quantity task
+# the LLM invented on its own is stripped out before validation.
+MUTATION_TRIGGERS = (
+    "restock",
+    "update inventory",
+    "change quantity",
+    "mutate",
+    "adjust inventory",
+)
+
+
+def _strip_unauthorized_mutations(goal: str, payload: dict) -> dict:
+    """Remove any update_inventory_quantity task the model added on its own.
+
+    Sales-audit and reporting requests are read-only. Small models
+    sometimes add an update_inventory_quantity task even when the system
+    prompt explicitly forbids it (e.g. for a plain low-stock report).
+    This guard enforces that constraint in code instead of relying only
+    on the prompt.
+    """
+    goal_lower = goal.lower()
+
+    if any(trigger in goal_lower for trigger in MUTATION_TRIGGERS):
+        # The user explicitly asked for a mutation somewhere in the goal;
+        # leave the plan untouched and let normal validation/permission
+        # checks (allow_mutations) handle it downstream.
+        return payload
+
+    tasks = payload.get("tasks", [])
+    kept_ids = {task["id"] for task in tasks}
+    kept_tasks = []
+
+    for task in tasks:
+        if task.get("tool_name") == "update_inventory_quantity":
+            kept_ids.discard(task["id"])
+            continue
+        kept_tasks.append(task)
+
+    if not kept_tasks:
+        # Safety fallback: don't return an empty plan. If stripping the
+        # mutation task would empty the whole plan, keep the original
+        # payload as-is and let downstream validation/execution surface
+        # the problem explicitly instead of silently producing a plan
+        # with zero tasks.
+        return payload
+
+    for task in kept_tasks:
+        task["depends_on"] = [
+            dep for dep in task.get("depends_on", []) if dep in kept_ids
+        ]
+
+    payload["tasks"] = kept_tasks
+    return payload
+
+
 def decompose_goal(goal: str, llm: BaseChatModel) -> Plan:
     """Decompose a goal into a validated executable DAG.
 
@@ -77,7 +154,7 @@ def decompose_goal(goal: str, llm: BaseChatModel) -> Plan:
 
     generated = llm.with_structured_output(
         GeneratedPlan,
-        method="json_schema",
+        method="function_calling",
     ).invoke(
         [
             ("system", PLANNER_SYSTEM),
@@ -106,6 +183,10 @@ Requirements:
 
     # The user's original goal is authoritative.
     payload["goal"] = goal
+
+    # Drop any inventory-mutation task the model invented on its own for
+    # a read-only request, before handing the payload to Plan validation.
+    payload = _strip_unauthorized_mutations(goal, payload)
 
     # Plan.model_validate() performs the actual DAG validation.
     return Plan.model_validate(payload)

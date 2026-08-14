@@ -1,0 +1,11 @@
+{
+  "case_id": "D2",
+  "category": "REFLEXION",
+  "method": "self_refine",
+  "request": "Produce the February 2026 sales figures and make every revenue, order-count, and units-sold number match the database exactly.",
+  "success": false,
+  "error": {
+    "type": "RateLimitError",
+    "message": "Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kzx1d7jnenjb38hvkkym0r75` service tier `on_demand` on tokens per day (TPD): Limit 500000, Used 499642, Requested 1570. Please try again in 3m29.433599999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  }
+}

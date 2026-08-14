@@ -1,0 +1,11 @@
+{
+  "case_id": "D5",
+  "category": "REFLEXION",
+  "method": "self_refine",
+  "request": "Produce the complete January 2026 sales audit and ensure revenue, orders, units, returns, and low-stock findings all tie out to the database.",
+  "success": false,
+  "error": {
+    "type": "RateLimitError",
+    "message": "Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kzx1d7jnenjb38hvkkym0r75` service tier `on_demand` on tokens per day (TPD): Limit 500000, Used 499146, Requested 1304. Please try again in 1m17.759999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  }
+}

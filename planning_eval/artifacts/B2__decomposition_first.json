@@ -1,0 +1,82 @@
+{
+  "case_id": "B2",
+  "category": "DYNAMIC",
+  "method": "decomposition_first",
+  "request": "Audit April 2026. If there are pending return requests, inspect the affected orders and summarize the likely issue. If there are no pending returns, skip the investigation.",
+  "success": true,
+  "grounded": true,
+  "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record.",
+  "evaluation": {
+    "success": true,
+    "score": 0.6885,
+    "details": [],
+    "ground_truth": "<function gt_pending_returns at 0x000002136F919760>",
+    "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record."
+  },
+  "plan": {
+    "goal": "Audit April 2026. If there are pending return requests, inspect the affected orders and summarize the likely issue. If there are no pending returns, skip the investigation.",
+    "tasks": [
+      {
+        "id": "t1",
+        "instruction": "Generate sales audit report for April 2026 with start_date=2026-04-01 and end_date=2026-04-30 using generate_sales_audit_report",
+        "depends_on": [],
+        "tool_name": "generate_sales_audit_report",
+        "tool_arguments": {
+          "end_date": "2026-04-30",
+          "start_date": "2026-04-01"
+        }
+      },
+      {
+        "id": "t2",
+        "instruction": "Check for pending return requests in the sales audit report",
+        "depends_on": [
+          "t1"
+        ],
+        "tool_name": null,
+        "tool_arguments": {}
+      },
+      {
+        "id": "t3",
+        "instruction": "If there are pending return requests, inspect the affected orders and summarize the likely issue",
+        "depends_on": [
+          "t2"
+        ],
+        "tool_name": null,
+        "tool_arguments": {}
+      },
+      {
+        "id": "t4",
+        "instruction": "If there are no pending return requests, skip the investigation",
+        "depends_on": [
+          "t2"
+        ],
+        "tool_name": null,
+        "tool_arguments": {}
+      },
+      {
+        "id": "t5",
+        "instruction": "Synthesize the sales audit report and pending return request investigation results",
+        "depends_on": [
+          "t3",
+          "t4"
+        ],
+        "tool_name": null,
+        "tool_arguments": {}
+      }
+    ]
+  },
+  "node_outputs": {
+    "t1": "{\n  \"report_type\": \"sales_audit_report\",\n  \"generated_at\": \"2026-08-14T22:43:44.969444+00:00\",\n  \"period\": {\n    \"start_date\": \"2026-04-01\",\n    \"end_date\": \"2026-04-30\"\n  },\n  \"sales\": {\n    \"total_orders\": 0,\n    \"total_revenue\": 0.0,\n    \"units_sold\": 0,\n    \"items_value\": 0.0,\n    \"average_order_value\": 0.0,\n    \"orders_by_status\": {}\n  },\n  \"returns\": {\n    \"total_returns\": 0,\n    \"approved_returns\": 0,\n    \"rejected_returns\": 0,\n    \"pending_returns\": 0,\n    \"return_rate\": 0.0\n  },\n  \"inventory\": {\n    \"low_stock_threshold\": 20,\n    \"low_stock_count\": 2,\n    \"low_stock_items\": [\n      {\n        \"product_id\": 4,\n        \"product_name\": \"Air Fryer\",\n        \"quantity\": 15\n      },\n      {\n        \"product_id\": 1,\n        \"product_name\": \"Dell Laptop\",\n        \"quantity\": 20\n      }\n    ],\n    \"audit_events\": 0,\n    \"actions_by_type\": {}\n  }\n}",
+    "t2": "```python\ndef check_pending_returns(report):\n    \"\"\"\n    Check for pending return requests in the sales audit report.\n\n    Args:\n        report (dict): The sales audit report.\n\n    Returns:\n        bool: True if there are pending return requests, False otherwise.\n    \"\"\"\n    return report['returns']['pending_returns'] > 0\n```\n\nExample usage:\n```python\nreport = {\n  \"report_type\": \"sales_audit_report\",\n  \"generated_at\": \"2026-08-14T22:43:44.969444+00:00\",\n  \"period\": {\n    \"start_date\": \"2026-04-01\",\n    \"end_date\": \"2026-04-30\"\n  },\n  \"sales\": {\n    \"total_orders\": 0,\n    \"total_revenue\": 0.0,\n    \"units_sold\": 0,\n    \"items_value\": 0.0,\n    \"average_order_value\": 0.0,\n    \"orders_by_status\": {}\n  },\n  \"returns\": {\n    \"total_returns\": 0,\n    \"approved_returns\": 0,\n    \"rejected_returns\": 0,\n    \"pending_returns\": 1,\n    \"return_rate\": 0.0\n  },\n  \"inventory\": {\n    \"low_stock_threshold\": 20,\n    \"low_stock_count\": 2,\n    \"low_stock_items\": [\n      {\n        \"product_id\": 4,\n        \"product_name\": \"Air Fryer\",\n        \"quantity\": 15\n      },\n      {\n        \"product_id\": 1,\n        \"product_name\": \"Dell Laptop\",\n        \"quantity\": 20\n      }\n    ],\n    \"audit_events\": 0,\n    \"actions_by_type\": {}\n  }\n}\n\nhas_pending_returns = check_pending_returns(report)\nprint(has_pending_returns)  # Output: True\n```",
+    "t3": "```python\ndef inspect_affected_orders(report):\n    \"\"\"\n    Inspect the affected orders and summarize the likely issue for pending return requests.\n\n    Args:\n        report (dict): The sales audit report.\n\n    Returns:\n        str: A summary of the likely issue.\n    \"\"\"\n    if report['returns']['pending_returns'] > 0:\n        # Get the orders with pending returns\n        pending_returns = report['returns']['pending_returns']\n        orders_with_pending_returns = report['orders_by_status'].get('pending_returns', [])\n\n        # Summarize the likely issue\n        issue_summary = f\"There are {pending_returns} pending return requests affecting {len(orders_with_pending_returns)} orders.\"\n        if orders_with_pending_returns:\n            issue_summary += f\" The affected orders are: {', '.join([order['order_id'] for order in orders_with_pending_returns])}\"\n        return issue_summary\n    else:\n        return \"No pending return requests found.\"\n```\n\nExample usage:\n```python\nreport = {\n  \"report_type\": \"sales_audit_report\",\n  \"generated_at\": \"2026-08-14T22:43:44.969444+00:00\",\n  \"period\": {\n    \"start_date\": \"2026-04-01\",\n    \"end_date\": \"2026-04-30\"\n  },\n  \"sales\": {\n    \"total_orders\": 0,\n    \"total_revenue\": 0.0,\n    \"units_sold\": 0,\n    \"items_value\": 0.0,\n    \"average_order_value\": 0.0,\n    \"orders_by_status\": {\n      \"pending_returns\": [\n        {\"order_id\": 123, \"status\": \"pending\"},\n        {\"order_id\": 456, \"status\": \"pending\"}\n      ]\n    }\n  },\n  \"returns\": {\n    \"total_returns\": 0,\n    \"approved_returns\": 0,\n    \"rejected_returns\": 0,\n    \"pending_returns\": 2,\n    \"return_rate\": 0.0\n  },\n  \"inventory\": {\n    \"low_stock_threshold\": 20,\n    \"low_stock_count\": 2,\n    \"low_stock_items\": [\n      {\n        \"product_id\": 4,\n        \"product_name\": \"Air Fryer\",\n        \"quantity\": 15\n      },\n      {\n        \"product_id\": 1,\n        \"product_name\": \"Dell Laptop\",\n        \"quantity\": 20\n      }\n    ],\n    \"audit_events\": 0,\n    \"actions_by_type\": {}\n  }\n}\n\nissue_summary = inspect_affected_orders(report)\nprint(issue_summary)\n# Output: There are 2 pending return requests affecting 2 orders. The affected orders are: 123, 456\n```",
+    "t4": "```python\ndef skip_investigation(has_pending_returns):\n    \"\"\"\n    Skip the investigation if there are no pending return requests.\n\n    Args:\n        has_pending_returns (bool): True if there are pending return requests, False otherwise.\n\n    Returns:\n        bool: True if the investigation should be skipped, False otherwise.\n    \"\"\"\n    return not has_pending_returns\n```",
+    "t5": "```python\ndef synthesize_audit_report_and_investigation_results(report, has_pending_returns):\n    \"\"\"\n    Synthesize the sales audit report and pending return request investigation results.\n\n    Args:\n        report (dict): The sales audit report.\n        has_pending_returns (bool): True if there are pending return requests, False otherwise.\n\n    Returns:\n        str: A synthesized report of the sales audit and pending return request investigation results.\n    \"\"\"\n    if has_pending_returns:\n        issue_summary = inspect_affected_orders(report)\n    else:\n        issue_summary = \"No pending return requests found.\"\n\n    sales_audit_summary = f\"Sales Audit Report for April 2026:\\n\" \\\n                         f\"Total Orders: {report['sales']['total_orders']}\\n\" \\\n                         f\"Total Revenue: ${report['sales']['total_revenue']:.2f}\\n\" \\\n                         f\"Units Sold: {report['sales']['units_sold']}\\n\" \\\n                         f\"Average Order Value: ${report['sales']['average_order_value']:.2f}\"\n\n    return f\"{sales_audit_summary}\\n\\n{issue_summary}\"\n```"
+  },
+  "final_output": "```python\ndef synthesize_audit_report_and_investigation_results(report, has_pending_returns):\n    \"\"\"\n    Synthesize the sales audit report and pending return request investigation results.\n\n    Args:\n        report (dict): The sales audit report.\n        has_pending_returns (bool): True if there are pending return requests, False otherwise.\n\n    Returns:\n        str: A synthesized report of the sales audit and pending return request investigation results.\n    \"\"\"\n    if has_pending_returns:\n        issue_summary = inspect_affected_orders(report)\n    else:\n        issue_summary = \"No pending return requests found.\"\n\n    sales_audit_summary = f\"Sales Audit Report for April 2026:\\n\" \\\n                         f\"Total Orders: {report['sales']['total_orders']}\\n\" \\\n                         f\"Total Revenue: ${report['sales']['total_revenue']:.2f}\\n\" \\\n                         f\"Units Sold: {report['sales']['units_sold']}\\n\" \\\n                         f\"Average Order Value: ${report['sales']['average_order_value']:.2f}\"\n\n    return f\"{sales_audit_summary}\\n\\n{issue_summary}\"\n```",
+  "llm_calls": 5,
+  "input_tokens": 2213,
+  "output_tokens": 1268,
+  "total_tokens": 3481,
+  "cost_usd": 0.002307,
+  "latency_s": 42.2361
+}

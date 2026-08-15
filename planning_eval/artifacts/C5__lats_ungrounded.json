@@ -1,0 +1,29 @@
+{
+  "case_id": "C5",
+  "category": "LOOKAHEAD",
+  "method": "lats_ungrounded",
+  "request": "Choose the three low-stock products that deserve the highest reorder attention right now. Compare multiple candidate rankings before selecting the final three.",
+  "success": false,
+  "grounded": false,
+  "source_of_truth": "No external source of truth; format-only baseline.",
+  "evaluation": {
+    "success": false,
+    "score": 0.0,
+    "details": [
+      "Candidate needs a structured audit-shaped response of at least 20 words."
+    ],
+    "grounded": false,
+    "ground_truth": "<function gt_low_stock_items at 0x000002332C60DE40>",
+    "source_of_truth": "No external source of truth; format-only baseline."
+  },
+  "output": "Compare the sales velocity and inventory level of all products to identify the top 3 that deserve the highest reorder attention. Calculate the sales velocity by dividing the total sales by the total time period. Then, sort the products based on their sales velocity and inventory level. The products with the highest sales velocity and lowest inventory level should be ranked highest.",
+  "best_score": 0.0,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=5, value_sum=0.0, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 12,
+  "input_tokens": 884,
+  "output_tokens": 1748,
+  "total_tokens": 2632,
+  "cost_usd": 0.001902,
+  "latency_s": 82.6615
+}

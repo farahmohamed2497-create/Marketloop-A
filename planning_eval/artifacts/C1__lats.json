@@ -3,24 +3,28 @@
   "category": "LOOKAHEAD",
   "method": "lats",
   "request": "Rank the current low-stock products by reorder priority. Explain the ordering using the current inventory quantities and the reorder threshold.",
-  "success": true,
+  "success": false,
   "grounded": true,
-  "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record.",
+  "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products).",
   "evaluation": {
-    "success": true,
-    "score": 0.6348,
-    "details": [],
-    "ground_truth": "<function gt_low_stock_items at 0x000002136F918FE0>",
-    "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record."
+    "success": false,
+    "score": 0.75,
+    "details": [
+      "Missing low-stock product 'Air Fryer' from the database result.",
+      "Missing low-stock product 'Dell Laptop' from the database result."
+    ],
+    "grounded": true,
+    "ground_truth": "<function gt_low_stock_items at 0x000002332C60DE40>",
+    "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products)."
   },
-  "output": "CREATE RANKED_LIST AS SELECT *, (reorder_threshold - quantity) AS priority, (CURRENT_DATE - last_order_date) AS time_elapsed FROM inventory WHERE quantity < reorder_threshold ORDER BY priority DESC, time_elapsed ASC",
-  "best_score": 0.8605,
-  "iterations": 1,
-  "tree": "LATSNode(state='No attempt yet.', action='root', visits=2, value_sum=1.4269, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "output": "Get current inventory quantities from MarketLoop audit data: { 'Product A': 10, 'Product B': 5, 'Product C': 20, 'Product D': 3, 'Product E': 15 } and reorder threshold: 5. Sort products by reorder priority: Product D, Product B, Product A, Product E, Product C.",
+  "best_score": 0.75,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=3, value_sum=2.25, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
   "llm_calls": 4,
-  "input_tokens": 129,
-  "output_tokens": 378,
-  "total_tokens": 507,
-  "cost_usd": 0.000375,
-  "latency_s": 23.9992
+  "input_tokens": 619,
+  "output_tokens": 1304,
+  "total_tokens": 1923,
+  "cost_usd": 0.001395,
+  "latency_s": 85.7861
 }

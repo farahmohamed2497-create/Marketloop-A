@@ -1,0 +1,29 @@
+{
+  "case_id": "C3",
+  "category": "LOOKAHEAD",
+  "method": "lats_ungrounded",
+  "request": "From the January 2026 audit evidence, select the three findings that should be escalated to Finance first. Consider the evidence from sales, returns, and low-stock inventory.",
+  "success": false,
+  "grounded": false,
+  "source_of_truth": "No external source of truth; format-only baseline.",
+  "evaluation": {
+    "success": false,
+    "score": 0.0,
+    "details": [
+      "Candidate needs a structured audit-shaped response of at least 20 words."
+    ],
+    "grounded": false,
+    "ground_truth": "<function gt_sales_audit at 0x000002332C60E660>",
+    "source_of_truth": "No external source of truth; format-only baseline."
+  },
+  "output": "Review the January 2026 audit evidence, identify the top three findings related to sales discrepancies, returns, and low-stock inventory, and present these to Finance for immediate action.",
+  "best_score": 0.0,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=6, value_sum=0.0, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 15,
+  "input_tokens": 1107,
+  "output_tokens": 2437,
+  "total_tokens": 3544,
+  "cost_usd": 0.002578,
+  "latency_s": 83.9542
+}

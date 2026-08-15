@@ -33,6 +33,17 @@ python -m pytest -q
 
 Do not commit API keys, embedding credentials, or generated vector-database artifacts. Store secrets in `.env`, which must remain ignored by Git.
 
+### API setup
+
+Copy `.env.example` to `.env` and add `GROQ_API_KEY` to run the API-backed
+planning benchmark and Groq RAG paths. `MISTRAL_API_KEY` is needed only for
+`planning_lab.cli`. Never commit `.env`.
+
+```bash
+python -m planning_eval.run_benchmark
+python -m planning_eval.summarize_results
+```
+
 ## Memory architecture
 
 ### Short-term memory and scratchpad
@@ -183,3 +194,48 @@ Evaluation results are stored in the generated run artifact.
 Each execution stores its results under the `artifacts/` directory.
 Artifacts can contain the generated plan, task outputs, final result,
 reflection information, and evaluation metrics.
+
+## Week 4 Sales Audit Planning Extension
+
+The separate `SalesAuditPlanningAgent` uses the existing MarketLoop MCP tools
+and SQLite database to produce multi-step sales audits. It leaves the existing
+memory/RAG agent path intact. `planning_lab/` is adapted from the required
+reference planning toolkit; `planning_eval/` contains the fixed 20-case suite,
+the API-backed runner, and JSON traces.
+
+- Decomposition-first constructs and validates one complete DAG before
+  execution; dynamic decomposition observes each result and can change the
+  next step.
+- Plan-and-Solve, Tree-of-Thoughts, and LATS are available through the routing
+  layer for fixed synthesis, candidate comparison, and validated actions.
+- Self-Refine uses a draft/critique/revision cycle; Reflexion carries a capped
+  memory of grounded failures into later trials.
+- `CaseGroundedEnvironment` validates candidate claims against the real
+  MarketLoop SQLite tables. The `lats_ungrounded` baseline intentionally
+  checks only answer shape, not facts.
+
+### Fixed-suite comparison
+
+The following table was generated from `planning_eval/artifacts/benchmark_results.json`
+by `python -m planning_eval.summarize_results`.
+
+| Method | Grounded | Runs | Success rate | Avg. LLM calls | Avg. tokens | Avg. latency (s) | Avg. cost (USD) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| decomposition_first | True | 10 | 80.0% | 5.40 | 4459 | 38.875 | $0.003009 |
+| dynamic_decomposition | True | 10 | 100.0% | 4.30 | 214 | 47.842 | $0.000137 |
+| lats | True | 5 | 0.0% | 10.40 | 3186 | 93.059 | $0.002253 |
+| lats_ungrounded | False | 5 | 20.0% | 13.00 | 2842 | 81.268 | $0.002063 |
+| plan_and_solve | True | 5 | 0.0% | 2.00 | 745 | 10.307 | $0.000547 |
+| reflexion | True | 5 | 40.0% | 6.80 | 8139 | 79.522 | $0.005488 |
+| self_refine | True | 5 | 40.0% | 3.00 | 3860 | 37.844 | $0.002595 |
+| tree_of_thoughts | True | 5 | 0.0% | 8.60 | 0 | 37.128 | $0.000000 |
+
+The production default for top-level sales-audit decomposition is dynamic
+decomposition: it achieved 100% success on the fixed suite, versus 80% for
+decomposition-first. For correction, Self-Refine is cheaper for a single
+revision, while Reflexion remains available where cross-trial learning is
+needed. LATS is retained for constrained, externally validated restock-action
+subtasks; the current benchmark makes its high cost and poor factual success
+visible rather than hiding it. The ungrounded LATS baseline accepted one
+format-shaped but unverified output, demonstrating why format-only critique is
+not a shipping decision signal.

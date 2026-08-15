@@ -4,8 +4,36 @@
   "method": "lats",
   "request": "From the January 2026 audit evidence, select the three findings that should be escalated to Finance first. Consider the evidence from sales, returns, and low-stock inventory.",
   "success": false,
-  "error": {
-    "type": "RateLimitError",
-    "message": "Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kzx1d7jnenjb38hvkkym0r75` service tier `on_demand` on tokens per day (TPD): Limit 500000, Used 499644, Requested 1107. Please try again in 2m9.7728s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
-  }
+  "grounded": true,
+  "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products).",
+  "evaluation": {
+    "success": false,
+    "score": 0.3529,
+    "details": [
+      "Missing low-stock product 'Air Fryer' from the database result.",
+      "Missing low-stock product 'Dell Laptop' from the database result.",
+      "Missing or incorrect orders; database value is 0.",
+      "Missing or incorrect revenue; database value is 0.0.",
+      "Missing or incorrect units; database value is 0.",
+      "Missing or incorrect average order value; database value is 0.0.",
+      "Missing or incorrect total returns; database value is 0.",
+      "Missing or incorrect approved returns; database value is 0.",
+      "Missing or incorrect rejected returns; database value is 0.",
+      "Missing or incorrect pending returns; database value is 0.",
+      "Missing or incorrect return rate; database value is 0.0."
+    ],
+    "grounded": true,
+    "ground_truth": "<function gt_sales_audit at 0x000002332C60E660>",
+    "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products)."
+  },
+  "output": "{\"finding_id\": 123, \"description\": \"Sales discrepancy in January 2026 audit evidence\", \"evidence\": \"[Sales data from January 2026 indicates a 10% discrepancy from forecasted sales]\", \"impact\": \"$10,000\"}",
+  "best_score": 0.3529,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=5, value_sum=1.7645, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 12,
+  "input_tokens": 1582,
+  "output_tokens": 1734,
+  "total_tokens": 3316,
+  "cost_usd": 0.002303,
+  "latency_s": 93.0073
 }

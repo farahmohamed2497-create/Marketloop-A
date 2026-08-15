@@ -1,0 +1,29 @@
+{
+  "case_id": "C4",
+  "category": "LOOKAHEAD",
+  "method": "lats_ungrounded",
+  "request": "For the January 2026 sales audit, propose several possible orders for the main report sections and choose the ordering that gives management the most actionable narrative.",
+  "success": true,
+  "grounded": false,
+  "source_of_truth": "No external source of truth; format-only baseline.",
+  "evaluation": {
+    "success": true,
+    "score": 1.0,
+    "details": [
+      "Format-only baseline accepted the candidate without factual verification."
+    ],
+    "grounded": false,
+    "ground_truth": "<function gt_sales_audit at 0x000002332C60E660>",
+    "source_of_truth": "No external source of truth; format-only baseline."
+  },
+  "output": "Order 1: Sales Performance - Inventory Management\n\n1. Introduction: The January 2026 sales audit aims to evaluate the company's sales performance for the past year, with a focus on sales revenue, returns, and inventory management. The purpose of this audit is to provide management with a comprehensive understanding of the company's sales trajectory, identify areas of improvement, and inform strategic decisions for future growth.\n\n2. Sales Performance Analysis: This section will analyze the company's sales revenue, returns, and inventory levels, highlighting key trends and areas of improvement.\n\n3. Inventory Management Analysis: This section will examine the company's inventory management practices, including stock levels, order fulfillment, and supply chain efficiency.\n\n4. Conclusion: Based on the analysis, this order provides a clear and actionable narrative for management, highlighting areas of improvement and strategic recommendations for future growth.\n\n\nOrder 2: Inventory Management - Sales Performance\n\n1. Introduction: The January 2026 sales audit aims to evaluate the company's sales performance for the past year, with a focus on inventory management and sales revenue. The purpose of this audit is to provide management with a comprehensive understanding of the company's sales trajectory, identify areas of improvement, and inform strategic decisions for future growth.\n\n2. Inventory Management Analysis: This section will examine the company's inventory management practices, including stock levels, order fulfillment, and supply chain efficiency.\n\n3. Sales Performance Analysis: This section will analyze the company's sales revenue, returns, and inventory levels, highlighting key trends and areas of improvement.\n\n4. Conclusion: Based on the analysis, this order provides a clear and actionable narrative for management, highlighting areas of improvement and strategic recommendations for future growth.",
+  "best_score": 1.0,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=4, value_sum=0.875, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 9,
+  "input_tokens": 503,
+  "output_tokens": 856,
+  "total_tokens": 1359,
+  "cost_usd": 0.000973,
+  "latency_s": 67.1786
+}

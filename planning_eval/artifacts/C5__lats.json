@@ -3,24 +3,28 @@
   "category": "LOOKAHEAD",
   "method": "lats",
   "request": "Choose the three low-stock products that deserve the highest reorder attention right now. Compare multiple candidate rankings before selecting the final three.",
-  "success": true,
+  "success": false,
   "grounded": true,
-  "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record.",
+  "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products).",
   "evaluation": {
-    "success": true,
-    "score": 0.9387,
-    "details": [],
-    "ground_truth": "<function gt_low_stock_items at 0x000002136F918FE0>",
-    "source_of_truth": "MarketLoop grounded Environment backed by the real SQLite database / MCP system of record."
+    "success": false,
+    "score": 0.75,
+    "details": [
+      "Missing low-stock product 'Air Fryer' from the database result.",
+      "Missing low-stock product 'Dell Laptop' from the database result."
+    ],
+    "grounded": true,
+    "ground_truth": "<function gt_low_stock_items at 0x000002332C60DE40>",
+    "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products)."
   },
-  "output": "Compare stock levels for all products, identify the top 5 products with the lowest stock levels",
-  "best_score": 0.9398,
-  "iterations": 1,
-  "tree": "LATSNode(state='No attempt yet.', action='root', visits=1, value_sum=0.9398, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
-  "llm_calls": 2,
-  "input_tokens": 0,
-  "output_tokens": 0,
-  "total_tokens": 0,
-  "cost_usd": 0.0,
-  "latency_s": 163.2837
+  "output": "{\"product1\": {\"name\": \"Product A\", \"quantity\": 50}, \"product2\": {\"name\": \"Product B\", \"quantity\": 25}, \"product3\": {\"name\": \"Product C\", \"quantity\": 75}, \"product4\": {\"name\": \"Product D\", \"quantity\": 10}, \"product5\": {\"name\": \"Product E\", \"quantity\": 40}}",
+  "best_score": 0.75,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=5, value_sum=3.625, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 12,
+  "input_tokens": 1234,
+  "output_tokens": 2306,
+  "total_tokens": 3540,
+  "cost_usd": 0.00255,
+  "latency_s": 104.4878
 }

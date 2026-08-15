@@ -4,8 +4,36 @@
   "method": "lats",
   "request": "Rank the most important operational risks in the January 2026 sales audit using evidence from sales, returns, and inventory. Explain why the top risks deserve attention first.",
   "success": false,
-  "error": {
-    "type": "BadRequestError",
-    "message": "Error code: 400 - {'error': {'message': \"Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.\", 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<function=LATSActionBatch> {\"actions\": [\\n  {\\n    \"action\": \"Conduct a comprehensive risk assessment using historical data from sales, returns, and inventory to identify the top operational risks in the January 2026 sales audit.\",\\n    \"state\": \"Review sales and returns data to identify trends and anomalies, and analyze inventory levels to determine potential stockouts or overstocking issues. Utilize statistical models to quantify the likelihood and potential impact of each risk.\"\\n  },\\n  {\\n    \"action\": \"Develop a mitigation plan to address the top operational risks, including implementing process improvements, training staff, and investing in technology to enhance data accuracy and visibility.\",\\n    \"state\": \"Prioritize the mitigation plan based on the risk assessment findings, focusing on the most critical risks first. Develop a phased implementation plan to ensure minimal disruption to business operations, and establish key performance indicators (KPIs) to measure the effectiveness of the mitigation plan.\"\\n  }\\n]}'}}"
-  }
+  "grounded": true,
+  "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products).",
+  "evaluation": {
+    "success": false,
+    "score": 0.3529,
+    "details": [
+      "Missing low-stock product 'Air Fryer' from the database result.",
+      "Missing low-stock product 'Dell Laptop' from the database result.",
+      "Missing or incorrect orders; database value is 0.",
+      "Missing or incorrect revenue; database value is 0.0.",
+      "Missing or incorrect units; database value is 0.",
+      "Missing or incorrect average order value; database value is 0.0.",
+      "Missing or incorrect total returns; database value is 0.",
+      "Missing or incorrect approved returns; database value is 0.",
+      "Missing or incorrect rejected returns; database value is 0.",
+      "Missing or incorrect pending returns; database value is 0.",
+      "Missing or incorrect return rate; database value is 0.0."
+    ],
+    "grounded": true,
+    "ground_truth": "<function gt_sales_audit at 0x000002332C60E660>",
+    "source_of_truth": "MarketLoop SQLite database queried by the fixed case ground-truth function (Orders, Order_Items, Return_Requests, Inventory, and Products)."
+  },
+  "output": "Review the MarketLoop audit data to identify key operational risks, including low-stock products, high return rates, and inventory discrepancies.",
+  "best_score": 0.3529,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=5, value_sum=1.7645, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 12,
+  "input_tokens": 1644,
+  "output_tokens": 1957,
+  "total_tokens": 3601,
+  "cost_usd": 0.002516,
+  "latency_s": 94.2725
 }

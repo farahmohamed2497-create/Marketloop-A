@@ -1,0 +1,29 @@
+{
+  "case_id": "C1",
+  "category": "LOOKAHEAD",
+  "method": "lats_ungrounded",
+  "request": "Rank the current low-stock products by reorder priority. Explain the ordering using the current inventory quantities and the reorder threshold.",
+  "success": false,
+  "grounded": false,
+  "source_of_truth": "No external source of truth; format-only baseline.",
+  "evaluation": {
+    "success": false,
+    "score": 0.0,
+    "details": [
+      "Candidate needs a structured audit-shaped response of at least 20 words."
+    ],
+    "grounded": false,
+    "ground_truth": "<function gt_low_stock_items at 0x000002332C60DE40>",
+    "source_of_truth": "No external source of truth; format-only baseline."
+  },
+  "output": "Sort products by (reorder threshold - current inventory quantity) in descending order",
+  "best_score": 0.0,
+  "iterations": 3,
+  "tree": "LATSNode(state='No attempt yet.', action='root', visits=6, value_sum=0.0, environment_score=0.0, model_score=0.0, feedback=None, reflections=[])",
+  "llm_calls": 14,
+  "input_tokens": 894,
+  "output_tokens": 2293,
+  "total_tokens": 3187,
+  "cost_usd": 0.002339,
+  "latency_s": 85.4984
+}

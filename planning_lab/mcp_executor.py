@@ -39,7 +39,22 @@ class MarketLoopMCPExecutor:
                 "Planning writes require allow_mutations=True after manager approval."
             )
 
-        result = self._tools[tool_name](dict(arguments))
+        payload = dict(arguments)
+        if tool_name == "generate_sales_audit_report":
+            # The report tool has a strict two-field contract. Ignore
+            # hallucinated optional fields emitted by a planner instead of
+            # failing a read-only benchmark run.
+            payload = {
+                key: value
+                for key, value in payload.items()
+                if key in {"start_date", "end_date"}
+            }
+
+        result = self._tools[tool_name](payload)
         if inspect.isawaitable(result):
             result = asyncio.run(result)
         return result if isinstance(result, str) else json.dumps(result, sort_keys=True)
+
+    def can_execute(self, tool_name: str) -> bool:
+        """Return whether a DAG tool binding names a real allow-listed tool."""
+        return tool_name in self._tools

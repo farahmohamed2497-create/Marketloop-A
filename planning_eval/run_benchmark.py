@@ -16,10 +16,13 @@ MarketLoop SQLite/MCP-backed environment and writes one JSON trace per run.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
-import time
+
+from dotenv import load_dotenv
 from groq import RateLimitError
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_groq import ChatGroq
@@ -34,7 +37,8 @@ from planning_lab.algorithms.decomposition import (
 from planning_lab.algorithms.dynamic_decomposition import (
     dynamic_decomposition,
 )
-from planning_lab.algorithms.environment import Environment
+from planning_eval.grounded_environment import CaseGroundedEnvironment as Environment
+from planning_eval.ungrounded_environment import UngroundedFormatEnvironment
 from planning_lab.algorithms.lats import lats
 from planning_lab.algorithms.plan_and_solve import plan_and_solve
 from planning_lab.algorithms.self_refine import reflect_and_refine
@@ -156,6 +160,9 @@ class TrackedLLM:
     def __init__(self, llm: BaseChatModel, tracker: UsageTracker) -> None:
         self._llm = llm
         self._tracker = tracker
+        # Function calling is supported by the small Groq model used for the
+        # full benchmark. Unit-test fakes use their json_schema default.
+        self.structured_output_method = "function_calling"
 
     def invoke(self, input_data, config=None, **kwargs):
         result = _invoke_with_retry(self._llm.invoke, input_data, config=config, **kwargs)
@@ -184,9 +191,19 @@ class TrackedRunnable:
 # ============================================================================
 
 def get_llm() -> ChatGroq:
+    project_root = Path(__file__).resolve().parents[1]
+    load_dotenv(project_root / ".env")
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing. Copy .env.example to .env and add a valid Groq API key."
+        )
+
     return ChatGroq(
+        api_key=api_key,
         model="llama-3.1-8b-instant",
         temperature=0,
+        max_retries=2,
     )
 
 
@@ -264,10 +281,18 @@ def evaluate_with_environment(
     """
     feedback = environment.evaluate(output)
 
+    grounded = bool(getattr(environment, "grounded", True))
+    source_of_truth = getattr(
+        environment,
+        "source_of_truth",
+        "MarketLoop SQLite database / MCP system of record.",
+    )
+
     return {
         "success": feedback.success,
         "score": feedback.score,
         "details": feedback.details,
+        "grounded": grounded,
         "ground_truth": _serialize(
             getattr(
                 case,
@@ -275,10 +300,7 @@ def evaluate_with_environment(
                 None,
             )
         ),
-        "source_of_truth": (
-            "MarketLoop grounded Environment backed by the real "
-            "SQLite database / MCP system of record."
-        ),
+        "source_of_truth": source_of_truth,
     }
 
 
@@ -328,7 +350,7 @@ def run_decomposition_first(
         "method": "decomposition_first",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "plan": _serialize(plan),
@@ -382,7 +404,7 @@ def run_dynamic_decomposition(
         "method": "dynamic_decomposition",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "history": _serialize(history),
@@ -429,7 +451,7 @@ def run_plan_and_solve(
         "method": "plan_and_solve",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "output": output,
@@ -494,7 +516,7 @@ def run_tree_of_thoughts(
         "method": "tree_of_thoughts",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "candidates": candidates,
@@ -545,7 +567,7 @@ def run_lats(
         "method": "lats",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "output": result.output,
@@ -562,6 +584,23 @@ def run_lats(
             4,
         ),
     }
+
+
+def run_lats_ungrounded(
+    case: TestCase,
+    llm: TrackedLLM,
+    tracker: UsageTracker,
+    _grounded_environment: Environment,
+) -> dict[str, Any]:
+    """Run LATS with the required format-only baseline on the same case."""
+    result = run_lats(
+        case,
+        llm,
+        tracker,
+        UngroundedFormatEnvironment(),
+    )
+    result["method"] = "lats_ungrounded"
+    return result
 
 
 # ============================================================================
@@ -602,6 +641,8 @@ Return only the complete draft.""",
         goal=case.request,
         draft=draft,
         llm=llm,
+        grounded_check=environment.evaluate,
+        source_of_truth=environment.source_of_truth,
     )
 
     evaluation = evaluate_with_environment(
@@ -616,7 +657,7 @@ Return only the complete draft.""",
         "method": "self_refine",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "draft": refined.draft,
@@ -668,7 +709,7 @@ def run_reflexion(
         "method": "reflexion",
         "request": case.request,
         "success": evaluation["success"],
-        "grounded": True,
+        "grounded": evaluation["grounded"],
         "source_of_truth": evaluation["source_of_truth"],
         "evaluation": evaluation,
         "output": result.output,
@@ -712,8 +753,10 @@ def run_one(
         tracker,
     )
 
-    # Environment is now the real grounded MarketLoop evaluator.
-    environment = Environment()
+    # The benchmark must never use the reference toolkit's randomized
+    # Environment. Every method receives a case-specific SQLite-backed
+    # evaluator, and its feedback is recorded in the trace.
+    environment = Environment(case)
 
     return method_runner(
         case,
@@ -755,6 +798,10 @@ def applicable_methods(
             (
                 "tree_of_thoughts",
                 run_tree_of_thoughts,
+            ),
+            (
+                "lats_ungrounded",
+                run_lats_ungrounded,
             ),
             (
                 "lats",
@@ -835,7 +882,7 @@ def run_all() -> list[dict[str, Any]]:
                     f"tokens={trace['total_tokens']} "
                     f"latency={trace['latency_s']}s "
                     f"cost=${trace['cost_usd']} "
-                    f"→ {path.name}"
+                    f"-> {path.name}"
                 )
 
             except Exception as exc:
@@ -896,5 +943,49 @@ def run_all() -> list[dict[str, Any]]:
     return all_results
 
 
+def rerun_failed() -> list[dict[str, Any]]:
+    """Retry only failed benchmark records from the latest fixed-suite run."""
+    summary_path = ARTIFACTS_DIR / "benchmark_results.json"
+    with summary_path.open(encoding="utf-8") as file:
+        previous_results = json.load(file)
+
+    cases = {case.id: case for case in TEST_CASES}
+    refreshed: list[dict[str, Any]] = []
+
+    for previous in previous_results:
+        if "error" not in previous:
+            refreshed.append(previous)
+            continue
+
+        case = cases[previous["case_id"]]
+        runner = dict(applicable_methods(case.category))[previous["method"]]
+        print(f"Retrying {case.id}/{previous['method']}...")
+        try:
+            result = run_one(case, runner)
+            trace = {
+                "case_id": case.id,
+                "category": case.category,
+                "method": previous["method"],
+                "request": case.request,
+                **result,
+            }
+        except Exception as exc:
+            trace = {
+                "case_id": case.id,
+                "category": case.category,
+                "method": previous["method"],
+                "request": case.request,
+                "success": False,
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+
+        save_trace(trace)
+        refreshed.append(trace)
+
+    with summary_path.open("w", encoding="utf-8") as file:
+        json.dump(refreshed, file, indent=2, ensure_ascii=False, default=str)
+    return refreshed
+
+
 if __name__ == "__main__":
-    run_all()
+    rerun_failed() if "--retry-failed" in sys.argv else run_all()

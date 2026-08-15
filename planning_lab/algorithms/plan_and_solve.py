@@ -41,7 +41,7 @@ def plan_and_solve(
 
     planned = llm.with_structured_output(
         SolvePlan,
-        method="function_calling",
+        method=getattr(llm, "structured_output_method", "json_schema"),
     ).invoke(
         [
             (

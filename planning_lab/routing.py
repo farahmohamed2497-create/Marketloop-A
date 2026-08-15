@@ -18,6 +18,10 @@ from planning_lab.algorithms.reflexion import ReflexionResult, reflexion
 
 
 class PlanningMethod(StrEnum):
+    MCP = "mcp"
+    PLAN_AND_SOLVE = "plan_and_solve"
+    TREE_OF_THOUGHTS = "tree_of_thoughts"
+    LATS = "lats"
     SELF_REFINE = "self_refine"
     REFLEXION = "reflexion"
 
@@ -117,6 +121,61 @@ def route_self_correction(profile: SubtaskProfile) -> PlanningMethod:
         return PlanningMethod.REFLEXION
 
     return PlanningMethod.SELF_REFINE
+
+
+def route_sales_audit_subtask(subtask: str) -> PlanningMethod:
+    """Choose the Sales Audit strategy that fits a subtask's shape."""
+    normalized = subtask.strip().lower()
+
+    if any(
+        phrase in normalized
+        for phrase in (
+            "retrieve",
+            "fetch",
+            "lookup",
+            "query",
+            "mcp report",
+            "audit data",
+        )
+    ):
+        return PlanningMethod.MCP
+
+    if any(
+        phrase in normalized
+        for phrase in (
+            "compare",
+            "rank",
+            "prioritize",
+            "alternative",
+            "choose between",
+        )
+    ):
+        return PlanningMethod.TREE_OF_THOUGHTS
+
+    if any(
+        phrase in normalized
+        for phrase in (
+            "retry",
+            "validation failure",
+            "approval failure",
+            "multiple attempts",
+            "recover",
+        )
+    ):
+        return PlanningMethod.REFLEXION
+
+    if any(
+        phrase in normalized
+        for phrase in (
+            "commit",
+            "inventory adjustment",
+            "restock",
+            "approve adjustment",
+        )
+    ):
+        return PlanningMethod.LATS
+
+    return PlanningMethod.PLAN_AND_SOLVE
 
 
 # ---------------------------------------------------------------------------

@@ -154,7 +154,7 @@ def decompose_goal(goal: str, llm: BaseChatModel) -> Plan:
 
     generated = llm.with_structured_output(
         GeneratedPlan,
-        method="function_calling",
+        method=getattr(llm, "structured_output_method", "json_schema"),
     ).invoke(
         [
             ("system", PLANNER_SYSTEM),
@@ -242,7 +242,15 @@ Do not invent sources."""
                         plan.task(task_id).tool_name,
                         plan.task(task_id).tool_arguments,
                     )
-                    if task_executor is not None and plan.task(task_id).tool_name
+                    if (
+                        task_executor is not None
+                        and plan.task(task_id).tool_name
+                        and getattr(
+                            task_executor,
+                            "can_execute",
+                            lambda _name: True,
+                        )(plan.task(task_id).tool_name)
+                    )
                     else pool.submit(
                         llm.invoke,
                         [

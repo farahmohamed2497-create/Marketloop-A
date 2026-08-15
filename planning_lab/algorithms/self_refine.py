@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from langchain_core.language_models.chat_models import BaseChatModel
+
+from ..models import EnvironmentFeedback
 
 
 def deterministic_checks(goal: str, draft: str) -> list[str]:
@@ -65,10 +68,30 @@ def reflect_and_refine(
     goal: str,
     draft: str,
     llm: BaseChatModel,
+    *,
+    grounded_check: Callable[[str], EnvironmentFeedback] | None = None,
+    source_of_truth: str | None = None,
 ) -> ReflectionResult:
-    """Critique and revise a draft using deterministic and LLM checks."""
+    """Critique and revise a draft using deterministic and external checks.
+
+    ``grounded_check`` is intentionally injected by the caller.  The generic
+    algorithm stays reusable, while a Sales Audit caller can provide the
+    SQLite-backed evaluator that is the source of truth for factual claims.
+    """
 
     grounded = deterministic_checks(goal, draft)
+
+    if grounded_check is not None:
+        feedback = grounded_check(draft)
+        if not feedback.success:
+            grounded.extend(
+                f"External validation: {detail}"
+                for detail in feedback.details
+            )
+
+    truth_description = source_of_truth or (
+        "No external validator was supplied; only deterministic checks are available."
+    )
 
     grounded_report = (
         "\n".join(f"- {issue}" for issue in grounded)
@@ -88,7 +111,10 @@ Do not rewrite the draft.
 Identify concrete correctness, completeness,
 consistency, or instruction-adherence issues.
 
-Use the deterministic checks as additional evidence.""",
+Use the deterministic checks as additional evidence.
+
+External validator feedback is the source of truth for factual claims;
+you must not answer PASS when it reports an inconsistency.""",
             ),
             (
                 "human",
@@ -101,7 +127,10 @@ Rubric:
 - internal consistency
 - instruction adherence
 
-Deterministic checks:
+SOURCE OF TRUTH:
+{truth_description}
+
+VALIDATION EVIDENCE:
 {grounded_report}
 
 Draft:
@@ -134,7 +163,7 @@ PASS""",
                     """You are the revision phase of a Self-Refine loop.
 
 Improve the draft using:
-1. deterministic checks;
+1. external validation evidence and deterministic checks;
 2. the independent critique.
 
 Preserve correct information.
@@ -149,7 +178,10 @@ Return only the improved deliverable.""",
 Original draft:
 {draft}
 
-Deterministic checks:
+SOURCE OF TRUTH:
+{truth_description}
+
+VALIDATION EVIDENCE:
 {grounded_report}
 
 Critique:

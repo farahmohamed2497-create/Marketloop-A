@@ -7,7 +7,9 @@ from ..models import Thought
 class ThoughtCandidates(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    candidates: list[str] = Field(min_length=1, max_length=3)
+    # Small models sometimes propose more than requested. Keep the schema
+    # permissive, then retain the best two candidates in the search loop.
+    candidates: list[str] = Field(min_length=1, max_length=10)
 
 
 class ThoughtEvaluation(BaseModel):
@@ -17,6 +19,14 @@ class ThoughtEvaluation(BaseModel):
     rationale: str
 
 
+def _structured_or_default(runnable, messages, *, temperature: float, default):
+    """Keep one malformed provider function call from aborting a search."""
+    try:
+        return runnable.invoke(messages, temperature=temperature)
+    except Exception:
+        return default
+
+
 def _expand_and_score(
     problem: str,
     parent: Thought,
@@ -24,22 +34,27 @@ def _expand_and_score(
     prune_threshold: float,
 ) -> list[Thought]:
     """Use the toolkit's generate/evaluate loop for one search-tree node."""
-    generated = llm.with_structured_output(
-        ThoughtCandidates,
-        method="function_calling",
-    ).invoke([
+    generated = _structured_or_default(
+        llm.with_structured_output(
+            ThoughtCandidates,
+            method=getattr(llm, "structured_output_method", "json_schema"),
+        ), [
         ("system", "Generate distinct candidate next steps for Tree-of-Thoughts search."),
         ("human", f"""Problem: {problem}
 Partial path: {parent.state}
 Propose two distinct promising continuations."""),
-    ], temperature=0.5)
+        ],
+        temperature=0.5,
+        default=ThoughtCandidates(candidates=[parent.state]),
+    )
 
     children: list[Thought] = []
     for state in generated.candidates[:2]:
-        judged = llm.with_structured_output(
-            ThoughtEvaluation,
-            method="function_calling",
-        ).invoke([
+        judged = _structured_or_default(
+            llm.with_structured_output(
+                ThoughtEvaluation,
+                method=getattr(llm, "structured_output_method", "json_schema"),
+            ), [
            (
     "system",
     """Independently evaluate a partial solution.
@@ -55,7 +70,10 @@ The score must be between 0 and 1.""",
             ("human", f"""Problem: {problem}
 Candidate path: {state}
 Score correctness, feasibility, and progress. Do not reward confident wording."""),
-        ], temperature=0.1)
+            ],
+            temperature=0.1,
+            default=ThoughtEvaluation(score=0.0, rationale="Malformed provider response."),
+        )
         if judged.score >= prune_threshold:
             children.append(
                 Thought(state=state, score=judged.score, rationale=judged.rationale)

@@ -44,7 +44,9 @@ class MarketLoopMCPServerTests(unittest.TestCase):
         server = MarketLoopMCPServer()
         server.register_modules()
         result = asyncio.run(server._list_resources(None))
-        uris = {resource.uri for resource in result.resources}
+        # MCP 1.x represents resource URIs as Pydantic AnyUrl values.
+        # Compare the protocol value, not its in-memory representation.
+        uris = {str(resource.uri) for resource in result.resources}
         self.assertIn("marketloop://policies/return_and_refund", uris)
         self.assertIn("marketloop://policies/shipping_sla", uris)
         self.assertEqual({resource.mime_type for resource in result.resources}, {"text/markdown"})

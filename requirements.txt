@@ -1,5 +1,7 @@
 # Core MCP client/server
-mcp>=2.0,<3
+# The server uses the MCP 1.x decorator-based Server API.
+# MCP 2.x removed these decorators, so allowing it breaks server startup.
+mcp>=1.8,<2
 aiohttp>=3.9,<4
 
 # RAG and vector retrieval

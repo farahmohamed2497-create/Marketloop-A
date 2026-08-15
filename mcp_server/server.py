@@ -150,22 +150,31 @@ class MarketLoopMCPServer:
     # `self._server.request_context`, not through a handler argument.
     # -----------------------------------------------------------------
 
-    async def _list_tools(self) -> list[types.Tool]:
+    async def _list_tools(self, _context: Any | None = None) -> types.ListToolsResult:
         self._refresh_visible_tools()
-        return [self._build_tool(tool) for tool in self._visible_tools]
+        return types.ListToolsResult(
+            tools=[self._build_tool(tool) for tool in self._visible_tools]
+        )
 
     async def _call_tool(
-        self, name: str, arguments: dict[str, Any] | None
-    ) -> list[types.TextContent]:
-        tool_name = name
-        payload = arguments
+        self,
+        context: Any | None,
+        params: Any,
+    ) -> types.CallToolResult:
+        tool_name = params.name
+        payload = params.arguments
         self._refresh_visible_tools()
 
-        request_context = self._server.request_context
+        request_context = context
+        if request_context is None:
+            try:
+                request_context = self._server.request_context
+            except LookupError:
+                request_context = None
 
         for tool in self._visible_tools:
             if getattr(tool, "name", tool.__name__) == tool_name:
-                meta = getattr(request_context, "meta", None)
+                meta = getattr(params, "meta", None)
                 progress_token = None
                 if isinstance(meta, dict):
                     progress_token = meta.get("progressToken", meta.get("progress_token"))
@@ -200,46 +209,69 @@ class MarketLoopMCPServer:
                         if session is not None and hasattr(session, "send_tool_list_changed"):
                             await session.send_tool_list_changed()
 
-                return [types.TextContent(type="text", text=str(result))]
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=str(result))]
+                )
         raise ValueError(f"Unknown tool: {tool_name}")
 
     def _resource_uri(self, name: str, resource: Callable[..., Any]) -> str:
         """Resolve the URI a resource is exposed under, defaulting to a per-name URI."""
         return getattr(resource, "uri", None) or f"resource://{name}"
 
-    async def _list_resources(self) -> list[types.Resource]:
-        return [
-            types.Resource(
-                name=name,
-                description=resource.__doc__ or "",
-                uri=self._resource_uri(name, resource),
-                mime_type="text/markdown",
-            )
-            for name, resource in self._resources
-        ]
+    async def _list_resources(
+        self, _context: Any | None = None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[
+                types.Resource(
+                    name=name,
+                    description=resource.__doc__ or "",
+                    uri=self._resource_uri(name, resource),
+                    mime_type="text/markdown",
+                )
+                for name, resource in self._resources
+            ]
+        )
 
-    async def _read_resource(self, uri) -> str:
+    async def _read_resource(
+        self, _context: Any | None, params: Any
+    ) -> types.ReadResourceResult:
+        uri = str(params.uri)
         for name, resource in self._resources:
-            if self._resource_uri(name, resource) == str(uri):
-                return str(resource())
+            if self._resource_uri(name, resource) == uri:
+                return types.ReadResourceResult(
+                    contents=[
+                        types.TextResourceContents(
+                            uri=uri,
+                            mime_type="text/markdown",
+                            text=str(resource()),
+                        )
+                    ]
+                )
         raise ValueError(f"Unknown resource: {uri}")
 
-    async def _list_prompts(self) -> list[types.Prompt]:
-        return [
-            types.Prompt(
-                name=name,
-                description=prompt.__doc__ or "",
-                arguments=[
-                    types.PromptArgument(**argument)
-                    for argument in getattr(prompt, "arguments", [])
-                ],
-            )
-            for name, prompt in self._prompts
-        ]
+    async def _list_prompts(
+        self, _context: Any | None = None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(
+            prompts=[
+                types.Prompt(
+                    name=name,
+                    description=prompt.__doc__ or "",
+                    arguments=[
+                        types.PromptArgument(**argument)
+                        for argument in getattr(prompt, "arguments", [])
+                    ],
+                )
+                for name, prompt in self._prompts
+            ]
+        )
 
     async def _get_prompt(
-        self, name: str, arguments: dict[str, str] | None
+        self, _context: Any | None, params: Any
     ) -> types.GetPromptResult:
+        name = params.name
+        arguments = params.arguments
         for pname, prompt in self._prompts:
             if pname == name:
                 text = str(prompt(arguments=arguments or {}))
@@ -253,7 +285,9 @@ class MarketLoopMCPServer:
                 )
         raise ValueError(f"Unknown prompt: {name}")
 
-    async def _set_logging_level(self, level) -> types.EmptyResult:
+    async def _set_logging_level(
+        self, _context: Any | None, _params: Any
+    ) -> types.EmptyResult:
         return types.EmptyResult()
 
     def list_tools(self) -> list[str]:

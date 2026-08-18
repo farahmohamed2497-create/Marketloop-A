@@ -25,59 +25,121 @@ class Plan(BaseModel):
     @model_validator(mode="after")
     def validate_dag(self) -> "Plan":
         ids = [task.id for task in self.tasks]
+
         if len(ids) != len(set(ids)):
             raise ValueError("Task ids must be unique")
+
         known = set(ids)
+
         for task in self.tasks:
             missing = set(task.depends_on) - known
+
             if missing:
-                raise ValueError(f"{task.id} has unknown dependencies: {sorted(missing)}")
+                raise ValueError(
+                    f"{task.id} has unknown dependencies: "
+                    f"{sorted(missing)}"
+                )
+
             if task.id in task.depends_on:
-                raise ValueError(f"{task.id} cannot depend on itself")
+                raise ValueError(
+                    f"{task.id} cannot depend on itself"
+                )
+
         if not nx.is_directed_acyclic_graph(self.graph):
             cycle = nx.find_cycle(self.graph)
-            blocked = sorted({node for edge in cycle for node in edge[:2]})
-            raise ValueError(f"Cycle detected; blocked tasks: {blocked}")
+
+            blocked = sorted(
+                {
+                    node
+                    for edge in cycle
+                    for node in edge[:2]
+                }
+            )
+
+            raise ValueError(
+                f"Cycle detected; blocked tasks: {blocked}"
+            )
+
         return self
 
     @property
     def graph(self) -> nx.DiGraph:
-        """Return the dependency graph, with edges directed dependency -> task."""
+        """Dependency -> task directed graph."""
+
         graph = nx.DiGraph()
-        graph.add_nodes_from(task.id for task in self.tasks)
+
+        graph.add_nodes_from(
+            task.id
+            for task in self.tasks
+        )
+
         graph.add_edges_from(
             (dependency, task.id)
             for task in self.tasks
             for dependency in task.depends_on
         )
+
         return graph
 
     def topological_order(self) -> list[str]:
-        return list(nx.topological_sort(self.graph))
+        return list(
+            nx.topological_sort(self.graph)
+        )
 
     def execution_batches(self) -> list[list[str]]:
-        """Return parallel-safe batches; every dependency is in an earlier batch."""
-        return [sorted(generation) for generation in nx.topological_generations(self.graph)]
+        """
+        Return parallel-safe batches.
+
+        Every dependency appears in an earlier batch.
+        """
+
+        return [
+            sorted(generation)
+            for generation in nx.topological_generations(
+                self.graph
+            )
+        ]
 
     def task(self, task_id: str) -> Task:
-        return next(task for task in self.tasks if task.id == task_id)
+        for task in self.tasks:
+            if task.id == task_id:
+                return task
+
+        raise KeyError(
+            f"Unknown task id: {task_id}"
+        )
 
     def terminal_tasks(self) -> list[str]:
-        return [node for node, degree in self.graph.out_degree if degree == 0]
+        return [
+            node
+            for node, degree in self.graph.out_degree
+            if degree == 0
+        ]
 
 
 class Thought(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: str
-    score: float = Field(ge=0.0, le=1.0)
+    score: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
     rationale: str = ""
 
 
 class EnvironmentFeedback(BaseModel):
-    """A grounded signal produced outside the language model."""
+    """
+    A grounded signal produced outside the language model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     success: bool
-    score: float = Field(ge=0.0, le=1.0)
-    details: list[str] = Field(default_factory=list)
-    model_config = ConfigDict(extra="forbid")
+    score: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+    details: list[str] = Field(
+        default_factory=list
+    )

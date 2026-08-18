@@ -143,7 +143,10 @@ def _strip_unauthorized_mutations(goal: str, payload: dict) -> dict:
     return payload
 
 
-def decompose_goal(goal: str, llm: BaseChatModel) -> Plan:
+def decompose_goal(
+    goal: str,
+    llm: BaseChatModel,
+) -> Plan:
     """Decompose a goal into a validated executable DAG.
 
     The LLM generates the candidate plan.

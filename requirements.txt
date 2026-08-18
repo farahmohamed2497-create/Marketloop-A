@@ -26,3 +26,9 @@ pytest>=8,<9
 black
 flake8
 mypy
+
+factory-boy
+engine
+store
+service
+graph

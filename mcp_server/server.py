@@ -7,15 +7,14 @@ import importlib
 import inspect
 import logging
 import pkgutil
-import warnings
 from types import ModuleType
 from typing import Any, Callable
 
 from mcp import types
-from mcp.server import Server
+from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
-
+from planning_lab.mcp_executor import MarketLoopMCPExecutor
 from .config import get_database_path, get_transport
 from .db import get_connection
 from .tools.session import SessionContext, switch_active_user_role
@@ -23,6 +22,11 @@ from .tools.session import SessionContext, switch_active_user_role
 # The SDK deprecates the logging/sampling capabilities the assignment requires,
 # and the dispatcher logs full tracebacks for expected tool rejections. Quiet
 # both so live demos and agent output stay clean; errors still reach the client.
+
+executor = MarketLoopMCPExecutor(
+    allow_mutations=False,
+)
+
 
 logging.getLogger("mcp.shared.jsonrpc_dispatcher").setLevel(logging.CRITICAL)
 logging.getLogger("mcp.server.runner").setLevel(logging.CRITICAL)
@@ -42,17 +46,16 @@ class MarketLoopMCPServer:
         self._active_tool_names: set[str] = set()
         self._session: Any | None = None
         self._server = Server(
-    name=name,
-    version=version,
-                         )
-
-        self._server.list_tools()(self._list_tools)
-        self._server.call_tool()(self._call_tool)
-        self._server.list_resources()(self._list_resources)
-        self._server.read_resource()(self._read_resource)
-        self._server.list_prompts()(self._list_prompts)
-        self._server.get_prompt()(self._get_prompt)
-        self._server.set_logging_level()(self._set_logging_level)
+            name,
+            version=version,
+            on_list_tools=self._list_tools,
+            on_call_tool=self._call_tool,
+            on_list_resources=self._list_resources,
+            on_read_resource=self._read_resource,
+            on_list_prompts=self._list_prompts,
+            on_get_prompt=self._get_prompt,
+            on_set_logging_level=self._set_logging_level,
+        )
 
     def initialize(self) -> dict[str, Any]:
         """Return the initialize payload for MCP capability negotiation."""
@@ -131,14 +134,64 @@ class MarketLoopMCPServer:
         self._active_tool_names = {getattr(tool, "name", tool.__name__) for tool in visible_tools}
         self._visible_tools = visible_tools
 
-    def _build_tool(self, tool: Callable[..., Any]) -> types.Tool:
+    def _build_tool(
+            self,
+            tool: Callable[..., Any],
+    ) -> types.Tool:
         name = getattr(tool, "name", tool.__name__)
         description = tool.__doc__ or ""
+
+        try:
+            from pydantic import TypeAdapter
+
+            signature = inspect.signature(tool)
+
+            properties: dict[str, Any] = {}
+            required: list[str] = []
+
+            for parameter in signature.parameters.values():
+                if parameter.name in {
+                    "context",
+                    "session_context",
+                }:
+                    continue
+
+                annotation = parameter.annotation
+
+                if annotation is inspect.Parameter.empty:
+                    continue
+
+                try:
+                    schema = TypeAdapter(annotation).json_schema()
+                except Exception:
+                    schema = {"type": "string"}
+
+                properties[parameter.name] = schema
+
+                if (
+                        parameter.default
+                        is inspect.Parameter.empty
+                ):
+                    required.append(parameter.name)
+
+            input_schema: dict[str, Any] = {
+                "type": "object",
+                "properties": properties,
+            }
+
+            if required:
+                input_schema["required"] = required
+
+        except Exception:
+            input_schema = {
+                "type": "object",
+                "properties": {},
+            }
+
         return types.Tool(
             name=name,
-    
             description=description,
-            inputSchema={"type": "object", "properties": {}},
+            inputSchema=input_schema,
         )
 
     # -----------------------------------------------------------------
@@ -150,83 +203,153 @@ class MarketLoopMCPServer:
     # `self._server.request_context`, not through a handler argument.
     # -----------------------------------------------------------------
 
-    async def _list_tools(self, _context: Any | None = None) -> types.ListToolsResult:
+    async def _list_tools(
+            self,
+            _context: Any = None,
+            _params: Any | None = None,
+    ) -> types.ListToolsResult:
         self._refresh_visible_tools()
+
         return types.ListToolsResult(
-            tools=[self._build_tool(tool) for tool in self._visible_tools]
+            tools=[
+                self._build_tool(tool)
+                for tool in self._visible_tools
+            ]
         )
 
     async def _call_tool(
-        self,
-        context: Any | None,
-        params: Any,
+            self,
+            context: Any,
+            params: Any,
     ) -> types.CallToolResult:
         tool_name = params.name
-        payload = params.arguments
+        payload = params.arguments or {}
+
         self._refresh_visible_tools()
 
         request_context = context
-        if request_context is None:
-            try:
-                request_context = self._server.request_context
-            except LookupError:
-                request_context = None
 
         for tool in self._visible_tools:
-            if getattr(tool, "name", tool.__name__) == tool_name:
-                meta = getattr(params, "meta", None)
-                progress_token = None
+            if getattr(tool, "name", tool.__name__) != tool_name:
+                continue
+
+            meta = getattr(params, "meta", None)
+
+            progress_token = None
+
+            if meta is not None:
                 if isinstance(meta, dict):
-                    progress_token = meta.get("progressToken", meta.get("progress_token"))
-                tool_context = type(
-                    "Context",
-                    (),
-                    {
-                        "session": getattr(request_context, "session", None),
-                        "progress_token": progress_token,
-                        "request_id": getattr(request_context, "request_id", None),
-                    },
-                )()
-                if tool_name in {"generate_sales_audit_report", "process_return_request", "generate_delay_apology"}:
-                    result = await tool(payload, context=tool_context)
-                elif tool_name == "switch_active_user_role" and isinstance(payload, dict):
-                    result = tool(payload.get("user_id"), session_context=self._session_context)
-                elif payload is None:
-                    result = tool()
+                    progress_token = meta.get(
+                        "progressToken",
+                        meta.get("progress_token"),
+                    )
                 else:
-                    result = tool(payload)
-                if inspect.isawaitable(result):
-                    result = await result
+                    progress_token = getattr(
+                        meta,
+                        "progressToken",
+                        None,
+                    )
 
-                # Role switches mutate the visible tool set at runtime. Refresh it
-                # and push tools/list_changed so clients re-discover the tools
-                # instead of polling or guessing.
-                if tool_name == "switch_active_user_role":
-                    previous_names = set(self._active_tool_names)
-                    self._refresh_visible_tools()
-                    if self._active_tool_names != previous_names:
-                        session = getattr(request_context, "session", None)
-                        if session is not None and hasattr(session, "send_tool_list_changed"):
-                            await session.send_tool_list_changed()
+            tool_context = type(
+                "Context",
+                (),
+                {
+                    "session": getattr(
+                        request_context,
+                        "session",
+                        None,
+                    ),
+                    "progress_token": progress_token,
+                    "request_id": getattr(
+                        request_context,
+                        "request_id",
+                        None,
+                    ),
+                },
+            )()
 
-                return types.CallToolResult(
-                    content=[types.TextContent(type="text", text=str(result))]
+            if tool_name in {
+                "generate_sales_audit_report",
+                "process_return_request",
+                "generate_delay_apology",
+            }:
+                result = await tool(
+                    payload,
+                    context=tool_context,
                 )
-        raise ValueError(f"Unknown tool: {tool_name}")
+
+            elif (
+                    tool_name == "switch_active_user_role"
+                    and isinstance(payload, dict)
+            ):
+                result = tool(
+                    payload.get("user_id"),
+                    session_context=self._session_context,
+                )
+
+            elif payload is None:
+                result = tool()
+
+            else:
+                result = tool(payload)
+
+            if inspect.isawaitable(result):
+                result = await result
+
+            if tool_name == "switch_active_user_role":
+                previous_names = set(
+                    self._active_tool_names
+                )
+
+                self._refresh_visible_tools()
+
+                if self._active_tool_names != previous_names:
+                    session = getattr(
+                        request_context,
+                        "session",
+                        None,
+                    )
+
+                    if (
+                            session is not None
+                            and hasattr(
+                        session,
+                        "send_tool_list_changed",
+                    )
+                    ):
+                        await session.send_tool_list_changed()
+
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(
+                        type="text",
+                        text=str(result),
+                    )
+                ]
+            )
+
+        raise ValueError(
+            f"Unknown tool: {tool_name}"
+        )
 
     def _resource_uri(self, name: str, resource: Callable[..., Any]) -> str:
         """Resolve the URI a resource is exposed under, defaulting to a per-name URI."""
         return getattr(resource, "uri", None) or f"resource://{name}"
 
     async def _list_resources(
-        self, _context: Any | None = None
+            self,
+            _context: Any,
+            _params: Any | None,
     ) -> types.ListResourcesResult:
         return types.ListResourcesResult(
             resources=[
                 types.Resource(
                     name=name,
                     description=resource.__doc__ or "",
-                    uri=self._resource_uri(name, resource),
+                    uri=self._resource_uri(
+                        name,
+                        resource,
+                    ),
                     mime_type="text/markdown",
                 )
                 for name, resource in self._resources
@@ -234,9 +357,12 @@ class MarketLoopMCPServer:
         )
 
     async def _read_resource(
-        self, _context: Any | None, params: Any
+            self,
+            _context: Any,
+            params: Any,
     ) -> types.ReadResourceResult:
         uri = str(params.uri)
+
         for name, resource in self._resources:
             if self._resource_uri(name, resource) == uri:
                 return types.ReadResourceResult(
@@ -248,10 +374,15 @@ class MarketLoopMCPServer:
                         )
                     ]
                 )
-        raise ValueError(f"Unknown resource: {uri}")
+
+        raise ValueError(
+            f"Unknown resource: {uri}"
+        )
 
     async def _list_prompts(
-        self, _context: Any | None = None
+            self,
+            _context: Any,
+            _params: Any | None,
     ) -> types.ListPromptsResult:
         return types.ListPromptsResult(
             prompts=[
@@ -260,7 +391,11 @@ class MarketLoopMCPServer:
                     description=prompt.__doc__ or "",
                     arguments=[
                         types.PromptArgument(**argument)
-                        for argument in getattr(prompt, "arguments", [])
+                        for argument in getattr(
+                            prompt,
+                            "arguments",
+                            [],
+                        )
                     ],
                 )
                 for name, prompt in self._prompts
@@ -268,25 +403,39 @@ class MarketLoopMCPServer:
         )
 
     async def _get_prompt(
-        self, _context: Any | None, params: Any
+            self,
+            _context: Any,
+            params: Any,
     ) -> types.GetPromptResult:
         name = params.name
-        arguments = params.arguments
+        arguments = params.arguments or {}
+
         for pname, prompt in self._prompts:
             if pname == name:
-                text = str(prompt(arguments=arguments or {}))
+                text = str(
+                    prompt(arguments=arguments)
+                )
+
                 return types.GetPromptResult(
                     messages=[
                         types.PromptMessage(
                             role="user",
-                            content=types.TextContent(type="text", text=text),
+                            content=types.TextContent(
+                                type="text",
+                                text=text,
+                            ),
                         )
                     ]
                 )
-        raise ValueError(f"Unknown prompt: {name}")
+
+        raise ValueError(
+            f"Unknown prompt: {name}"
+        )
 
     async def _set_logging_level(
-        self, _context: Any | None, _params: Any
+            self,
+            _context: Any,
+            _params: Any,
     ) -> types.EmptyResult:
         return types.EmptyResult()
 

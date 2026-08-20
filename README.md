@@ -239,3 +239,148 @@ subtasks; the current benchmark makes its high cost and poor factual success
 visible rather than hiding it. The ungrounded LATS baseline accepted one
 format-shaped but unverified output, demonstrating why format-only critique is
 not a shipping decision signal.
+
+## State Graphs — Graph 1 Refund Workflow
+
+### Refund Graph
+
+Graph 1 models a refund request as a persistent state graph rather than a linear
+function call. The graph keeps its execution state in `GraphState` and persists
+checkpoints after meaningful transitions.
+
+The current flow is:
+
+```text
+awaiting_input
+      |
+      v
+    lats
+      |
+      +--------------------+
+      |                    |
+      v                    v
+evaluate_refund         HITL pause
+                           |
+                           v
+                      admin decision
+                           |
+                           v
+                        resume
+
+
+                                                
+
+                                                                        LATS decision step
+
+The LATS node explores multiple refund candidates and stores the selected result
+inside GraphState.data["lats"].
+
+The stored fields include:
+
+success
+output
+best_score
+iterations
+
+This state is preserved so later validation and human review can inspect the
+decision that led to the current graph state.
+
+HITL trigger conditions
+
+A refund request is escalated to a human administrator when at least one of the
+following conditions is true:
+
+LATS confidence score is below 0.70.
+Refund amount is greater than 500.
+The proposed action violates the configured refund policy.
+
+These conditions are implemented in:
+
+state_graph/hitl/policy.py
+
+HITL pause and persistence
+
+When a HITL condition is triggered, HITLNode.pause():
+
+Creates a unique waiting_request_id.
+Creates a paused state with status waiting.
+Persists the full state snapshot with the HITL request.
+Stores the request as pending.
+Returns a TransitionResult with status="waiting".
+
+The persisted HITL request contains:
+
+run ID
+graph name
+reason for escalation
+complete serialized graph state
+request status
+administrator decision
+creation and resolution timestamps
+
+The graph therefore stops without losing the state collected before the
+escalation.
+
+HITL resume flow
+
+The intended resume flow is:
+
+Graph running
+    |
+    v
+HITL condition triggered
+    |
+    v
+Create HITL request
+    |
+    v
+Persist full state
+    |
+    v
+Graph status = waiting
+    |
+    v
+Administrator reviews request
+    |
+    +------ approve ------+
+    |                     |
+    +------ reject -------+
+                          |
+                          v
+                    store decision
+                          |
+                          v
+                  resume graph run
+                          |
+                          v
+                continue from checkpoint
+
+                The administrator decision is part of the persisted HITL request and is used
+when the run resumes. The run is not restarted from the beginning.
+
+Failure vs HITL
+
+HITL and failure recovery represent different paths:
+
+HITL is an expected pause caused by a decision that the agent is not
+authorized to make autonomously.
+Failure recovery is an unplanned interruption such as a tool error,
+validation error, or unusable model output.
+
+HITL requests use the waiting state and a waiting_request_id, while failure
+recovery uses the failure ticket path and waiting_ticket_id.
+
+Current implementation status
+
+Implemented:
+
+LATS integration into Graph 1.
+HITL threshold, policy, and confidence conditions.
+Persistent HITL request creation.
+Full-state persistence during HITL pause.
+Automated tests for HITL triggering and pause behavior.
+
+Pending:
+
+HTML admin platform and task-queue integration.
+Final end-to-end resume demonstration through the admin UI.

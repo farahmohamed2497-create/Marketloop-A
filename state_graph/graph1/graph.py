@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from planning_lab.algorithms.environment import Environment
-
 from state_graph.core.engine import StateGraphEngine
 from state_graph.core.models import GraphState
 from state_graph.core.transitions import TransitionTable
@@ -16,7 +14,6 @@ from .decomposition_execution import (
 def build_graph1(
     *,
     llm: BaseChatModel,
-    environment: Environment | None = None,
 ) -> StateGraphEngine:
 
     graph = DecompositionExecutionGraph(
@@ -31,40 +28,6 @@ def build_graph1(
         "decompose",
     )
 
-    transitions.add(
-        "decompose",
-        "validate_plan",
-    )
-
-    transitions.add(
-        "validate_plan",
-        "execute_parallel_tasks",
-    )
-
-    transitions.add(
-        "execute_parallel_tasks",
-        "ground_result",
-    )
-
-    transitions.add(
-        "ground_result",
-        "synthesis",
-    )
-
-    transitions.add(
-        "ground_result",
-        "retry_refine",
-    )
-
-    transitions.add(
-        "retry_refine",
-        "execute_parallel_tasks",
-    )
-
-    transitions.add(
-        "synthesis",
-        "done",
-    )
 
     return StateGraphEngine(
         transitions=transitions,

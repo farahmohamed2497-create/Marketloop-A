@@ -31,21 +31,6 @@ def build_graph2(
         "lats_search",
     )
 
-    transitions.add(
-        "lats_search",
-        "evaluate",
-    )
-
-    transitions.add(
-        "evaluate",
-        "done",
-    )
-
-    transitions.add(
-        "evaluate",
-        "hitl",
-    )
-
     # HITL is a waiting state.
     # The external resume operation moves it to "resume".
     transitions.add(

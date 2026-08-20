@@ -4,7 +4,6 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from planning_lab.algorithms.environment import Environment
 from planning_lab.algorithms.lats import lats
 
 from state_graph.core.models import (
@@ -13,9 +12,7 @@ from state_graph.core.models import (
 )
 
 from state_graph.hitl.node import HITLNode
-from state_graph.hitl.policy import (
-    requires_human_intervention,
-)
+
 
 
 class LATSAndHITLGraph:
@@ -75,55 +72,6 @@ class LATSAndHITLGraph:
             },
         )
 
-    def evaluate(
-        self,
-        state: GraphState,
-    ) -> TransitionResult:
-
-        result = state.outputs.get(
-            "lats_result"
-        )
-
-        if not result:
-            raise ValueError(
-                "No LATS result found."
-            )
-
-        feedback = self.environment.evaluate(
-            str(result)
-        )
-
-        score = feedback.score
-
-        if (
-            feedback.success
-            and not requires_human_intervention(
-                score,
-                threshold=self.confidence_threshold,
-            )
-        ):
-            return TransitionResult(
-                next_node="done",
-                status="done",
-                updates={
-                    "outputs": {
-                        **state.outputs,
-                        "environment_feedback":
-                            feedback.model_dump(),
-                    }
-                },
-            )
-
-        return TransitionResult(
-            next_node="hitl",
-            updates={
-                "outputs": {
-                    **state.outputs,
-                    "environment_feedback":
-                        feedback.model_dump(),
-                }
-            },
-        )
 
     def hitl(
         self,
@@ -172,7 +120,6 @@ class LATSAndHITLGraph:
         return {
             "awaiting_input": self.awaiting_input,
             "lats_search": self.lats_search,
-            "evaluate": self.evaluate,
             "hitl": self.hitl,
             "resume": self.resume,
         }

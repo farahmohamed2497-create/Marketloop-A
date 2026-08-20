@@ -11,9 +11,11 @@ from state_graph.core.models import GraphState
 from state_graph.core.transitions import TransitionTable
 from state_graph.graph1.refund_graph import RefundGraph
 
+from types import SimpleNamespace
 
-from state_graph.hitl.policy import requires_human_intervention
 from state_graph.hitl.node import HITLNode
+from state_graph.hitl.policy import requires_human_intervention
+
 
 def test_checkpoint_round_trip():
     store = CheckpointStore()
@@ -106,11 +108,21 @@ def test_engine_persists_state():
     assert recovered.current_node == "done"
 
 
-def test_refund_lats_node_stores_result():
-    mock_llm = MagicMock()
+def test_refund_lats_node_stores_result(monkeypatch):
+    fake_lats_result = SimpleNamespace(
+        success=True,
+        output="Full refund is appropriate.",
+        best_score=0.90,
+        iterations=2,
+    )
+
+    monkeypatch.setattr(
+        "state_graph.graph1.refund_graph.lats",
+        lambda **kwargs: fake_lats_result,
+    )
 
     graph = RefundGraph(
-        llm=mock_llm,
+        llm=MagicMock(),
         environment=Environment(
             success_threshold=0.0,
             rng=random.Random(42),
@@ -132,10 +144,9 @@ def test_refund_lats_node_stores_result():
 
     lats_data = result.updates["data"]["lats"]
 
-    assert "output" in lats_data
-    assert "best_score" in lats_data
-    assert "iterations" in lats_data
-
+    assert lats_data["output"] == "Full refund is appropriate."
+    assert lats_data["best_score"] == 0.90
+    assert lats_data["iterations"] == 2
     #test human_intervention
   
 
@@ -229,3 +240,63 @@ def test_hitl_node_pauses_and_persists_full_state():
         == "partial_refund"
     )
     assert persisted_state["outputs"]["customer"] == "test-customer"
+
+
+    #test simulate HITL trigger and verify pause behavior
+
+def test_refund_graph_triggers_hitl_on_low_confidence(
+    monkeypatch,
+):
+     fake_lats_result = SimpleNamespace(
+        success=False,
+        output="Partial refund is the safest option.",
+        best_score=0.55,
+        iterations=2,
+    )
+
+     monkeypatch.setattr(
+        "state_graph.graph1.refund_graph.lats",
+        lambda **kwargs: fake_lats_result,
+    )
+
+     graph = RefundGraph(
+        llm=MagicMock(),
+        environment=Environment(
+            success_threshold=0.0,
+            rng=random.Random(42),
+        ),
+    )
+
+     state = GraphState(
+        run_id=str(uuid.uuid4()),
+        graph_name="refund",
+        current_node="lats",
+        goal="Customer requests a refund for order ORD-123.",
+        data={
+            "refund_amount": 100.0,
+        },
+    )
+
+     result = graph.lats_node(state)
+
+     assert result.status == "waiting"
+
+     request_id = result.updates["waiting_request_id"]
+
+     assert request_id
+
+     request = graph.hitl.get_request(
+        request_id
+    )
+
+     assert request is not None
+     assert request["status"] == "pending"
+     assert request["run_id"] == state.run_id
+
+     persisted_state = request["state"]
+
+     assert persisted_state["status"] == "waiting"
+     assert (
+        persisted_state["data"]["lats"]["best_score"]
+        == 0.55
+    )

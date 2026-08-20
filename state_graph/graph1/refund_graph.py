@@ -4,16 +4,19 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from planning_lab.algorithms.lats import lats
 from planning_lab.algorithms.environment import Environment
+from planning_lab.algorithms.lats import lats
 from state_graph.core.models import GraphState, TransitionResult
+from state_graph.hitl.node import HITLNode
+from state_graph.hitl.policy import requires_human_intervention
 
 
 class RefundGraph:
     """State graph for handling refund requests.
 
-    LATS is used to explore multiple refund decisions before the graph
-    performs deterministic validation and approval routing.
+    LATS explores alternative refund decisions. When the resulting
+    confidence, refund amount, or policy status requires human review,
+    the graph pauses through the persistent HITL node.
     """
 
     def __init__(
@@ -24,6 +27,7 @@ class RefundGraph:
     ) -> None:
         self.llm = llm
         self.environment = environment
+        self.hitl = HITLNode()
 
     def awaiting_input(
         self,
@@ -45,7 +49,7 @@ class RefundGraph:
         self,
         state: GraphState,
     ) -> TransitionResult:
-        """Explore and evaluate alternative refund decisions with LATS."""
+        """Run LATS and route to HITL when policy requires human review."""
 
         result = lats(
             task=state.goal,
@@ -62,6 +66,37 @@ class RefundGraph:
                 "iterations": result.iterations,
             },
         }
+
+        refund_amount = updated_data.get(
+            "refund_amount"
+        )
+
+        policy_violation = bool(
+            updated_data.get(
+                "policy_violation",
+                False,
+            )
+        )
+
+        if requires_human_intervention(
+            score=result.best_score,
+            refund_amount=refund_amount,
+            policy_violation=policy_violation,
+        ):
+            paused_state = state.model_copy(
+                update={
+                    "data": updated_data,
+                }
+            )
+
+            return self.hitl.pause(
+                paused_state,
+                reason=(
+                    "Refund requires human review "
+                    "because the configured HITL policy "
+                    "was triggered."
+                ),
+            )
 
         return TransitionResult(
             next_node="evaluate_refund",

@@ -1,22 +1,20 @@
-from __future__ import annotations
-
-from langchain_core.language_models.chat_models import BaseChatModel
+from planning_lab.algorithms.environment import Environment
 
 from state_graph.core.engine import StateGraphEngine
 from state_graph.core.models import GraphState
 from state_graph.core.transitions import TransitionTable
 
-from .decomposition_execution import (
-    DecompositionExecutionGraph,
-)
+from .refund_graph import RefundGraph
 
 
 def build_graph1(
     *,
-    llm: BaseChatModel,
+    llm,
 ) -> StateGraphEngine:
 
-    graph = DecompositionExecutionGraph(
+    environment = Environment()
+
+    graph = RefundGraph(
         llm=llm,
         environment=environment,
     )
@@ -25,9 +23,8 @@ def build_graph1(
 
     transitions.add(
         "awaiting_input",
-        "decompose",
+        "lats",
     )
-
 
     return StateGraphEngine(
         transitions=transitions,
@@ -42,7 +39,7 @@ def create_initial_state(
 
     return GraphState(
         run_id=run_id,
-        graph_name="decomposition_execution",
+        graph_name="refund",
         current_node="awaiting_input",
         goal=goal,
     )

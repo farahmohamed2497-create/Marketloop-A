@@ -1,7 +1,7 @@
 from .node import HITLNode
-from .policy import HITLPolicy
+from .policy import requires_human_intervention
 
 __all__ = [
     "HITLNode",
-    "HITLPolicy",
+    "requires_human_intervention",
 ]

@@ -13,6 +13,7 @@ from state_graph.core.engine import StateGraphEngine
 from state_graph.core.models import GraphState, TransitionResult
 from state_graph.core.transitions import TransitionTable
 from state_graph.graph1.refund_graph import RefundGraph
+from state_graph.tickets.service import FailureTicketService
 
 from types import SimpleNamespace
 
@@ -239,6 +240,29 @@ def test_graph1_classifies_tool_and_schema_failures():
     assert schema_failure.data["failure"]["kind"] == "schema_validation_error"
     assert tool_failure.waiting_ticket_id == "ticket-42"
     assert len(ticket_service.errors) == 2
+
+
+def test_graph1_failure_ticket_persists_failure_state(tmp_path):
+    database_path = tmp_path / "graph1-tickets.db"
+
+    def connect():
+        return sqlite3.connect(database_path)
+
+    service = FailureTicketService(connection_factory=connect)
+    ticket_id = service.create_ticket(
+        run_id="refund-run-42",
+        graph_name="refund",
+        node_name="inspection",
+        error="warehouse tool returned malformed payload",
+        state={"current_node": "inspection", "return_id": "RET-42"},
+    )
+
+    ticket = service.get_ticket(ticket_id)
+
+    assert ticket is not None
+    assert ticket["status"] == "open"
+    assert ticket["state"]["return_id"] == "RET-42"
+    assert ticket["node_name"] == "inspection"
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

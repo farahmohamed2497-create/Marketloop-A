@@ -8,7 +8,7 @@ class FailureTicket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ticket_id: int | None = None
+    ticket_id: str | None = None
 
     run_id: str = Field(min_length=1)
 

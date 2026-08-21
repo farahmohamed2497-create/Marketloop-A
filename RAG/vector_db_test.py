@@ -6,9 +6,9 @@ from pathlib import Path
 def build_vector_database() -> None:
     """Embed the catalog and write the local development index."""
 
-    from RAG.chunking import chunk_document
-    from RAG.embedding import EmbeddingModel
-    from RAG.vector_store import VectorStore
+    from rag.chunking import chunk_document
+    from rag.embedding import EmbeddingModel
+    from rag.vector_store import VectorStore
 
     project_root = Path(__file__).resolve().parents[1]
 

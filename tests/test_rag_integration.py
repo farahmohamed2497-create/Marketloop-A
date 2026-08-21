@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import RAG.rag_pipeline as pipeline
-from RAG.agentic_rag import RetrievalHop, AgenticRAGResult
+import rag.rag_pipeline as pipeline
+from rag.agentic_rag import RetrievalHop, AgenticRAGResult
 
 
 # ---------- Fakes ----------

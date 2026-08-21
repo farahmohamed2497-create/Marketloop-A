@@ -36,7 +36,7 @@ Do not commit API keys, embedding credentials, or generated vector-database arti
 ### API setup
 
 Copy `.env.example` to `.env` and add `GROQ_API_KEY` to run the API-backed
-planning benchmark and Groq RAG paths. `MISTRAL_API_KEY` is needed only for
+planning benchmark and Groq rag paths. `MISTRAL_API_KEY` is needed only for
 `planning_lab.cli`. Never commit `.env`.
 
 ```bash
@@ -83,11 +83,11 @@ The retrieval corpus is the internal enterprise product catalog and policy mater
 
 MarketLoop implements three retrieval paths:
 
-1. **Naive RAG** (`RAG/naive_rag.py`): chunk, embed, retrieve, then generate from retrieved context.
-2. **Hybrid search** (`RAG/hybrid_search.py`): combines vector similarity and BM25 keyword matching, which is important for exact policy codes, order identifiers, and product SKUs.
-3. **Agentic RAG** (`RAG/agentic_rag.py`): decomposes a multi-part question, retrieves evidence per sub-question, observes coverage, and stops after the needed hops.
+1. **Naive RAG** (`rag/naive_rag.py`): chunk, embed, retrieve, then generate from retrieved context.
+2. **Hybrid search** (`rag/hybrid_search.py`): combines vector similarity and BM25 keyword matching, which is important for exact policy codes, order identifiers, and product SKUs.
+3. **Agentic RAG** (`rag/agentic_rag.py`): decomposes a multi-part question, retrieves evidence per sub-question, observes coverage, and stops after the needed hops.
 
-### Self-RAG-style verification
+### Self-rag-style verification
 
 `RAG/self_rag_verification.py` checks two conditions before retrieved information is used:
 

@@ -14,11 +14,11 @@ from typing import Any
 from dotenv import load_dotenv
 from groq import Groq
 
-from RAG.agentic_rag import AgenticRAGRetriever
-from RAG.embedding import EmbeddingModel
-from RAG.hybrid_search import HybridSearch
-from RAG.naive_rag import NaiveRAGRetriever
-from RAG.self_rag_verification import check_relevance, check_support
+from rag.agentic_rag import AgenticRAGRetriever
+from rag.embedding import EmbeddingModel
+from rag.hybrid_search import HybridSearch
+from rag.naive_rag import NaiveRAGRetriever
+from rag.self_rag_verification import check_relevance, check_support
 
 
 load_dotenv()
@@ -46,7 +46,7 @@ class _RenamingUnpickler(pickle.Unpickler):
 
 def _load_stores() -> tuple[EmbeddingModel, NaiveRAGRetriever, HybridSearch, AgenticRAGRetriever]:
     """Load local indexes only when a real, non-test request needs them."""
-    from RAG.vector_store import VectorStore
+    from rag.vector_store import VectorStore
 
     
     global _embedder, _naive, _hybrid, _agentic

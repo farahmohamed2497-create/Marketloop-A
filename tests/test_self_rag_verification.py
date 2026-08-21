@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from RAG.self_rag_verification import check_relevance, check_support, check_memory_recall
+from rag.self_rag_verification import check_relevance, check_support, check_memory_recall
 
 
 def test_relevant_chunk_passes():

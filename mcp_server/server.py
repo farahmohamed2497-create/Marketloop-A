@@ -12,109 +12,100 @@ from typing import Any, Callable
 
 from mcp import types
 from mcp.server.lowlevel import Server
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.stdio import stdio_server
+from pydantic import AnyUrl
 
 from planning_lab.mcp_executor import MarketLoopMCPExecutor
+
 from .config import get_database_path, get_transport
 from .db import get_connection
 from .tools.session import SessionContext, switch_active_user_role
 
-# The SDK deprecates the logging/sampling capabilities the assignment requires,
-# and the dispatcher logs full tracebacks for expected tool rejections. Quiet
-# both so live demos and agent output stay clean; errors still reach the client.
 
+# The SDK deprecates the logging/sampling capabilities the assignment requires,
+# and the dispatcher logs full tracebacks for expected tool rejections.
+# Quiet both so live demos and agent output stay clean; errors still reach
+# the client.
 executor = MarketLoopMCPExecutor(
     allow_mutations=False,
 )
 
+logging.getLogger(
+    "mcp.shared.jsonrpc_dispatcher"
+).setLevel(logging.CRITICAL)
 
-logging.getLogger("mcp.shared.jsonrpc_dispatcher").setLevel(logging.CRITICAL)
-logging.getLogger("mcp.server.runner").setLevel(logging.CRITICAL)
+logging.getLogger(
+    "mcp.server.runner"
+).setLevel(logging.CRITICAL)
 
 
 class MarketLoopMCPServer:
-    """A protocol-aware MCP server with capability negotiation and modular registration."""
+    """Protocol-aware MCP server with modular tool registration."""
 
-    def __init__(self, name: str = "marketloop", version: str = "0.1.0") -> None:
+    def __init__(
+        self,
+        name: str = "marketloop",
+        version: str = "0.1.0",
+    ) -> None:
         self.name = name
         self.version = version
         self.transport = get_transport()
+
         self._tools: list[Callable[..., Any]] = []
-        self._resources: list[tuple[str, Callable[..., Any]]] = []
-        self._prompts: list[tuple[str, Callable[..., Any]]] = []
+        self._resources: list[
+            tuple[str, Callable[..., Any]]
+        ] = []
+        self._prompts: list[
+            tuple[str, Callable[..., Any]]
+        ] = []
+
         self._session_context = SessionContext()
         self._active_tool_names: set[str] = set()
         self._session: Any | None = None
-        # MCP 1.x registers handlers with decorators.  Passing callbacks to
-        # ``Server(...)`` was supported by an older SDK API and makes the
-        # server fail during construction with current 1.x releases.
-        self._server = Server(name, version=version)
-        self._register_protocol_handlers()
+        self._visible_tools: list[
+            Callable[..., Any]
+        ] = []
 
-    def _register_protocol_handlers(self) -> None:
-        """Adapt the project's handlers to the MCP 1.x decorator API."""
+        # mcp==1.29.0 uses the v1 low-level Server API.
+        # Handlers are registered through decorator calls rather than
+        # constructor keyword arguments.
+        self._server = Server(
+            name,
+            version=version,
+        )
 
-        @self._server.list_tools()
-        async def list_tools_handler() -> types.ListToolsResult:
-            return await self._list_tools()
+        self._register_handlers()
 
-        @self._server.call_tool(validate_input=False)
-        async def call_tool_handler(
-            tool_name: str,
-            arguments: dict[str, Any],
-        ) -> types.CallToolResult:
-            params = type(
-                "ToolParams",
-                (),
-                {"name": tool_name, "arguments": arguments, "meta": None},
-            )()
-            return await self._call_tool(self._server.request_context, params)
+    def _register_handlers(self) -> None:
+        """Register protocol handlers using the MCP v1 API."""
 
-        @self._server.list_resources()
-        async def list_resources_handler() -> types.ListResourcesResult:
-            return await self._list_resources(None, None)
-
-        @self._server.read_resource()
-        async def read_resource_handler(uri: Any) -> list[ReadResourceContents]:
-            result = await self._read_resource(None, type("ResourceParams", (), {"uri": uri})())
-            return [
-                ReadResourceContents(
-                    content=content.text,
-                    mime_type=content.mime_type,
-                )
-                for content in result.contents
-            ]
-
-        @self._server.list_prompts()
-        async def list_prompts_handler() -> types.ListPromptsResult:
-            return await self._list_prompts(None, None)
-
-        @self._server.get_prompt()
-        async def get_prompt_handler(
-            prompt_name: str,
-            arguments: dict[str, str] | None,
-        ) -> types.GetPromptResult:
-            params = type(
-                "PromptParams",
-                (),
-                {"name": prompt_name, "arguments": arguments or {}},
-            )()
-            return await self._get_prompt(None, params)
-
-        @self._server.set_logging_level()
-        async def set_logging_level_handler(_level: Any) -> None:
-            await self._set_logging_level(None, None)
+        self._server.list_tools()(self._list_tools)
+        self._server.call_tool()(self._call_tool)
+        self._server.list_resources()(self._list_resources)
+        self._server.read_resource()(self._read_resource)
+        self._server.list_prompts()(self._list_prompts)
+        self._server.get_prompt()(self._get_prompt)
+        self._server.set_logging_level()(self._set_logging_level)
 
     def initialize(self) -> dict[str, Any]:
-        """Return the initialize payload for MCP capability negotiation."""
+        """Return the MCP initialization payload."""
         return {
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": self.name, "version": self.version},
+            "serverInfo": {
+                "name": self.name,
+                "version": self.version,
+            },
             "capabilities": {
-                "tools": {"listChanged": False},
-                "resources": {"subscribe": False, "listChanged": False},
-                "prompts": {"listChanged": False},
+                "tools": {
+                    "listChanged": False,
+                },
+                "resources": {
+                    "subscribe": False,
+                    "listChanged": False,
+                },
+                "prompts": {
+                    "listChanged": False,
+                },
                 "logging": {},
             },
         }
@@ -122,72 +113,194 @@ class MarketLoopMCPServer:
     def connect(self) -> dict[str, Any]:
         """Prepare the server for a transport connection."""
         self.register_modules()
+
         connection = get_connection()
         connection.close()
+
         return {
             "transport": self.transport,
-            "database": str(get_database_path()),
-            "capabilities": self.initialize()["capabilities"],
+            "database": str(
+                get_database_path()
+            ),
+            "capabilities": self.initialize()[
+                "capabilities"
+            ],
         }
 
     def register_modules(self) -> None:
-        """Discover and register tools, resources, and prompts from the package tree."""
+        """Discover and register tools, resources, and prompts."""
         self._register_from_package("tools")
         self._register_from_package("resources")
         self._register_from_package("prompts")
         self._refresh_visible_tools()
 
-    def _register_from_package(self, package_name: str) -> None:
-        package = importlib.import_module(f"mcp_server.{package_name}")
-        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-            module = importlib.import_module(f"mcp_server.{package_name}.{module_name}")
+    def _register_from_package(
+        self,
+        package_name: str,
+    ) -> None:
+        package = importlib.import_module(
+            f"mcp_server.{package_name}"
+        )
+
+        for _, module_name, _ in pkgutil.iter_modules(
+            package.__path__
+        ):
+            module = importlib.import_module(
+                f"mcp_server.{package_name}.{module_name}"
+            )
+
             self._register_module_members(module)
 
-    def _register_module_members(self, module: ModuleType) -> None:
-        for _, member in inspect.getmembers(module, inspect.isfunction):
+    def _register_module_members(
+        self,
+        module: ModuleType,
+    ) -> None:
+        for _, member in inspect.getmembers(
+            module,
+            inspect.isfunction,
+        ):
             if member.__module__ != module.__name__:
                 continue
-            name = getattr(member, "name", None) or member.__name__
+
+            name = getattr(
+                member,
+                "name",
+                None,
+            ) or member.__name__
+
             if name.startswith("_"):
                 continue
-            if module.__name__.split(".")[-1] in {"inventory", "orders", "order", "session", "tools"}:
+
+            module_leaf = module.__name__.split(
+                "."
+            )[-1]
+
+            if module_leaf in {
+                "inventory",
+                "orders",
+                "order",
+                "session",
+                "tools",
+            }:
                 self._tools.append(member)
                 continue
-            kind = getattr(member, "kind", None)
-            if kind in {"tool", "resource", "prompt"}:
+
+            kind = getattr(
+                member,
+                "kind",
+                None,
+            )
+
+            if kind in {
+                "tool",
+                "resource",
+                "prompt",
+            }:
                 if kind == "tool":
                     self._tools.append(member)
+
                 elif kind == "resource":
-                    self._resources.append((name, member))
+                    self._resources.append(
+                        (name, member)
+                    )
+
                 elif kind == "prompt":
-                    self._prompts.append((name, member))
+                    self._prompts.append(
+                        (name, member)
+                    )
+
                 continue
-            if "tool" in name.lower() or name.lower().endswith("tool"):
+
+            lower_name = name.lower()
+
+            if (
+                "tool" in lower_name
+                or lower_name.endswith("tool")
+            ):
                 self._tools.append(member)
-            elif "resource" in name.lower() or name.lower().endswith("resource"):
-                self._resources.append((name, member))
-            elif "prompt" in name.lower() or name.lower().endswith("prompt"):
-                self._prompts.append((name, member))
+
+            elif (
+                "resource" in lower_name
+                or lower_name.endswith("resource")
+            ):
+                self._resources.append(
+                    (name, member)
+                )
+
+            elif (
+                "prompt" in lower_name
+                or lower_name.endswith("prompt")
+            ):
+                self._prompts.append(
+                    (name, member)
+                )
 
     def _refresh_visible_tools(self) -> None:
-        """Expose only the tools appropriate for the current active role."""
-        role = (self._session_context.active_role or "").strip().lower()
-        visible_tools = []
+        """Expose only tools allowed for the active role."""
+
+        role = (
+            self._session_context.active_role
+            or ""
+        ).strip().lower()
+
+        visible_tools: list[
+            Callable[..., Any]
+        ] = []
+
         for tool in self._tools:
-            name = getattr(tool, "name", tool.__name__)
-            if name == "update_inventory_quantity" and role and role not in {"warehouse admin", "manager", "inventory manager"}:
+            name = getattr(
+                tool,
+                "name",
+                tool.__name__,
+            )
+
+            if (
+                name == "update_inventory_quantity"
+                and role
+                and role
+                not in {
+                    "warehouse admin",
+                    "manager",
+                    "inventory manager",
+                }
+            ):
                 continue
-            if name == "process_return_request" and role and role not in {"customer support", "support staff", "manager"}:
+
+            if (
+                name == "process_return_request"
+                and role
+                and role
+                not in {
+                    "customer support",
+                    "support staff",
+                    "manager",
+                }
+            ):
                 continue
+
             visible_tools.append(tool)
-        self._active_tool_names = {getattr(tool, "name", tool.__name__) for tool in visible_tools}
+
+        self._active_tool_names = {
+            getattr(
+                tool,
+                "name",
+                tool.__name__,
+            )
+            for tool in visible_tools
+        }
+
         self._visible_tools = visible_tools
 
     def _build_tool(
-            self,
-            tool: Callable[..., Any],
+        self,
+        tool: Callable[..., Any],
     ) -> types.Tool:
-        name = getattr(tool, "name", tool.__name__)
+        name = getattr(
+            tool,
+            "name",
+            tool.__name__,
+        )
+
         description = tool.__doc__ or ""
 
         try:
@@ -211,17 +324,26 @@ class MarketLoopMCPServer:
                     continue
 
                 try:
-                    schema = TypeAdapter(annotation).json_schema()
-                except Exception:
-                    schema = {"type": "string"}
+                    schema = TypeAdapter(
+                        annotation
+                    ).json_schema()
 
-                properties[parameter.name] = schema
+                except Exception:
+                    schema = {
+                        "type": "string",
+                    }
+
+                properties[
+                    parameter.name
+                ] = schema
 
                 if (
-                        parameter.default
-                        is inspect.Parameter.empty
+                    parameter.default
+                    is inspect.Parameter.empty
                 ):
-                    required.append(parameter.name)
+                    required.append(
+                        parameter.name
+                    )
 
             input_schema: dict[str, Any] = {
                 "type": "object",
@@ -229,7 +351,9 @@ class MarketLoopMCPServer:
             }
 
             if required:
-                input_schema["required"] = required
+                input_schema[
+                    "required"
+                ] = required
 
         except Exception:
             input_schema = {
@@ -244,45 +368,101 @@ class MarketLoopMCPServer:
         )
 
     # -----------------------------------------------------------------
-    # Handlers below are registered via `self._server.<method>()(handler)`,
-    # which is the decorator-based (v1) low-level `mcp.server.Server` API.
-    # In that API handlers receive the *raw protocol arguments* directly
-    # (name, arguments, uri, level, ...) — there is no `_context` parameter.
-    # Session/request-id access happens through the ambient
-    # `self._server.request_context`, not through a handler argument.
+    # Handler compatibility
+    #
+    # These handlers support:
+    #
+    # 1. MCP v1 direct arguments.
+    # 2. The request/params calling shape used by the existing tests.
+    #
+    # This keeps the server compatible with the installed SDK while
+    # preserving the repository's existing test contract.
     # -----------------------------------------------------------------
 
     async def _list_tools(
-            self,
-            _context: Any = None,
-            _params: Any | None = None,
-    ) -> types.ListToolsResult:
+        self,
+        *_args: Any,
+    ) -> list[types.Tool]:
         self._refresh_visible_tools()
 
-        return types.ListToolsResult(
-            tools=[
-                self._build_tool(tool)
-                for tool in self._visible_tools
-            ]
-        )
+        return [
+            self._build_tool(tool)
+            for tool in self._visible_tools
+        ]
 
     async def _call_tool(
-            self,
-            context: Any,
-            params: Any,
-    ) -> types.CallToolResult:
-        tool_name = params.name
-        payload = params.arguments or {}
+        self,
+        name_or_request: Any,
+        arguments_or_params: Any | None = None,
+    ) -> list[types.ContentBlock]:
+        """
+        Support both MCP v1 direct calls and test-style request/params calls.
+        """
+
+        if isinstance(
+            name_or_request,
+            str,
+        ):
+            tool_name = name_or_request
+            payload = (
+                arguments_or_params
+                or {}
+            )
+            fallback_context = None
+
+        else:
+            fallback_context = (
+                name_or_request
+            )
+
+            params = arguments_or_params
+
+            tool_name = getattr(
+                params,
+                "name",
+                None,
+            )
+
+            payload = (
+                getattr(
+                    params,
+                    "arguments",
+                    None,
+                )
+                or {}
+            )
 
         self._refresh_visible_tools()
 
-        request_context = context
+        try:
+            request_context = (
+                self._server.request_context
+            )
+
+        except LookupError:
+            # Unit tests call the handler outside
+            # an MCP request context.
+            request_context = fallback_context
 
         for tool in self._visible_tools:
-            if getattr(tool, "name", tool.__name__) != tool_name:
+            current_name = getattr(
+                tool,
+                "name",
+                tool.__name__,
+            )
+
+            if current_name != tool_name:
                 continue
 
-            meta = getattr(params, "meta", None)
+            meta = (
+                getattr(
+                    request_context,
+                    "meta",
+                    None,
+                )
+                if request_context is not None
+                else None
+            )
 
             progress_token = None
 
@@ -290,29 +470,45 @@ class MarketLoopMCPServer:
                 if isinstance(meta, dict):
                     progress_token = meta.get(
                         "progressToken",
-                        meta.get("progress_token"),
+                        meta.get(
+                            "progress_token"
+                        ),
                     )
                 else:
                     progress_token = getattr(
                         meta,
                         "progressToken",
-                        None,
+                        getattr(
+                            meta,
+                            "progress_token",
+                            None,
+                        ),
                     )
 
             tool_context = type(
                 "Context",
                 (),
                 {
-                    "session": getattr(
-                        request_context,
-                        "session",
-                        None,
+                    "session": (
+                        getattr(
+                            request_context,
+                            "session",
+                            None,
+                        )
+                        if request_context is not None
+                        else None
                     ),
-                    "progress_token": progress_token,
-                    "request_id": getattr(
-                        request_context,
-                        "request_id",
-                        None,
+                    "progress_token": (
+                        progress_token
+                    ),
+                    "request_id": (
+                        getattr(
+                            request_context,
+                            "request_id",
+                            None,
+                        )
+                        if request_context is not None
+                        else None
                     ),
                 },
             )()
@@ -328,15 +524,21 @@ class MarketLoopMCPServer:
                 )
 
             elif (
-                    tool_name == "switch_active_user_role"
-                    and isinstance(payload, dict)
+                tool_name
+                == "switch_active_user_role"
+                and isinstance(
+                    payload,
+                    dict,
+                )
             ):
                 result = tool(
                     payload.get("user_id"),
-                    session_context=self._session_context,
+                    session_context=(
+                        self._session_context
+                    ),
                 )
 
-            elif payload is None:
+            elif not payload:
                 result = tool()
 
             else:
@@ -345,124 +547,206 @@ class MarketLoopMCPServer:
             if inspect.isawaitable(result):
                 result = await result
 
-            if tool_name == "switch_active_user_role":
+            if (
+                tool_name
+                == "switch_active_user_role"
+            ):
                 previous_names = set(
                     self._active_tool_names
                 )
 
                 self._refresh_visible_tools()
 
-                if self._active_tool_names != previous_names:
-                    session = getattr(
-                        request_context,
-                        "session",
-                        None,
+                if (
+                    self._active_tool_names
+                    != previous_names
+                ):
+                    session = (
+                        getattr(
+                            request_context,
+                            "session",
+                            None,
+                        )
+                        if request_context is not None
+                        else None
                     )
 
                     if (
-                            session is not None
-                            and hasattr(
-                        session,
-                        "send_tool_list_changed",
-                    )
+                        session is not None
+                        and hasattr(
+                            session,
+                            "send_tool_list_changed",
+                        )
                     ):
                         await session.send_tool_list_changed()
 
-            return types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text",
-                        text=str(result),
-                    )
-                ]
-            )
+            return [
+                types.TextContent(
+                    type="text",
+                    text=str(result),
+                )
+            ]
 
         raise ValueError(
             f"Unknown tool: {tool_name}"
         )
 
-    def _resource_uri(self, name: str, resource: Callable[..., Any]) -> str:
-        """Resolve the URI a resource is exposed under, defaulting to a per-name URI."""
-        return getattr(resource, "uri", None) or f"resource://{name}"
+    def _resource_uri(
+        self,
+        name: str,
+        resource: Callable[..., Any],
+    ) -> str:
+        """Resolve the URI exposed for a resource."""
 
-    async def _list_resources(
-            self,
-            _context: Any = None,
-            _params: Any | None = None,
-    ) -> types.ListResourcesResult:
-        return types.ListResourcesResult(
-            resources=[
-                types.Resource(
-                    name=name,
-                    description=resource.__doc__ or "",
-                    uri=self._resource_uri(
-                        name,
-                        resource,
-                    ),
-                    mime_type="text/markdown",
-                )
-                for name, resource in self._resources
-            ]
+        return (
+            getattr(
+                resource,
+                "uri",
+                None,
+            )
+            or f"resource://{name}"
         )
 
+    async def _list_resources(
+        self,
+        *_args: Any,
+    ) -> list[types.Resource]:
+        return [
+            types.Resource(
+                name=name,
+                description=(
+                    resource.__doc__
+                    or ""
+                ),
+                uri=AnyUrl(
+                    self._resource_uri(
+                        name,
+                        resource,
+                    )
+                ),
+                mimeType="text/markdown",
+            )
+            for name, resource in self._resources
+        ]
+
     async def _read_resource(
-            self,
-            _context: Any,
-            params: Any,
-    ) -> types.ReadResourceResult:
-        uri = str(params.uri)
+        self,
+        uri_or_request: Any,
+        params: Any | None = None,
+    ) -> str:
+        """
+        Support both:
+
+            _read_resource(uri)
+
+        and:
+
+            _read_resource(request, params)
+        """
+
+        if params is not None:
+            uri = getattr(
+                params,
+                "uri",
+                params,
+            )
+        else:
+            uri = uri_or_request
+
+        uri_str = str(uri)
 
         for name, resource in self._resources:
-            if self._resource_uri(name, resource) == uri:
-                return types.ReadResourceResult(
-                    contents=[
-                        types.TextResourceContents(
-                            uri=uri,
-                            mime_type="text/markdown",
-                            text=str(resource()),
-                        )
-                    ]
+            if (
+                self._resource_uri(
+                    name,
+                    resource,
                 )
+                == uri_str
+            ):
+                return str(resource())
 
         raise ValueError(
-            f"Unknown resource: {uri}"
+            f"Unknown resource: {uri_str}"
         )
 
     async def _list_prompts(
-            self,
-            _context: Any = None,
-            _params: Any | None = None,
-    ) -> types.ListPromptsResult:
-        return types.ListPromptsResult(
-            prompts=[
-                types.Prompt(
-                    name=name,
-                    description=prompt.__doc__ or "",
-                    arguments=[
-                        types.PromptArgument(**argument)
-                        for argument in getattr(
-                            prompt,
-                            "arguments",
-                            [],
-                        )
-                    ],
-                )
-                for name, prompt in self._prompts
-            ]
-        )
+        self,
+        *_args: Any,
+    ) -> list[types.Prompt]:
+        return [
+            types.Prompt(
+                name=name,
+                description=(
+                    prompt.__doc__
+                    or ""
+                ),
+                arguments=[
+                    types.PromptArgument(
+                        **argument
+                    )
+                    for argument in getattr(
+                        prompt,
+                        "arguments",
+                        [],
+                    )
+                ],
+            )
+            for name, prompt in self._prompts
+        ]
 
     async def _get_prompt(
-            self,
-            _context: Any,
-            params: Any,
+        self,
+        name_or_request: Any,
+        arguments_or_params: Any | None = None,
     ) -> types.GetPromptResult:
-        name = params.name
-        arguments = params.arguments or {}
+        """
+        Support both:
+
+            _get_prompt(name, arguments)
+
+        and:
+
+            _get_prompt(request, params)
+        """
+
+        if isinstance(
+            name_or_request,
+            str,
+        ):
+            name = name_or_request
+            payload = (
+                arguments_or_params
+                or {}
+            )
+
+        else:
+            params = arguments_or_params
+
+            name = getattr(
+                params,
+                "name",
+                getattr(
+                    name_or_request,
+                    "name",
+                    None,
+                ),
+            )
+
+            payload = (
+                getattr(
+                    params,
+                    "arguments",
+                    {},
+                )
+                or {}
+            )
 
         for pname, prompt in self._prompts:
             if pname == name:
                 text = str(
-                    prompt(arguments=arguments)
+                    prompt(
+                        arguments=payload
+                    )
                 )
 
                 return types.GetPromptResult(
@@ -482,57 +766,115 @@ class MarketLoopMCPServer:
         )
 
     async def _set_logging_level(
-            self,
-            _context: Any,
-            _params: Any,
-    ) -> types.EmptyResult:
-        return types.EmptyResult()
+        self,
+        level: Any,
+    ) -> None:
+        return None
 
     def list_tools(self) -> list[str]:
         self._refresh_visible_tools()
-        return [getattr(tool, "name", tool.__name__) for tool in self._visible_tools]
+
+        return [
+            getattr(
+                tool,
+                "name",
+                tool.__name__,
+            )
+            for tool in self._visible_tools
+        ]
 
     def list_resources(self) -> list[str]:
-        return [name for name, _ in self._resources]
+        return [
+            name
+            for name, _ in self._resources
+        ]
 
     def list_prompts(self) -> list[str]:
-        return [name for name, _ in self._prompts]
+        return [
+            name
+            for name, _ in self._prompts
+        ]
 
     def notify_tools_changed(self) -> None:
         """Notify the client that the available toolset changed."""
+
         self._refresh_visible_tools()
-        session = getattr(self, "_session", None)
-        if session is not None and hasattr(session, "send_tool_list_changed"):
+
+        session = getattr(
+            self,
+            "_session",
+            None,
+        )
+
+        if (
+            session is not None
+            and hasattr(
+                session,
+                "send_tool_list_changed",
+            )
+        ):
             try:
-                import asyncio
-                asyncio.run(session.send_tool_list_changed())
+                asyncio.run(
+                    session.send_tool_list_changed()
+                )
+
             except RuntimeError:
                 loop = asyncio.new_event_loop()
+
                 try:
-                    loop.run_until_complete(session.send_tool_list_changed())
+                    loop.run_until_complete(
+                        session.send_tool_list_changed()
+                    )
                 finally:
                     loop.close()
 
-    def switch_role(self, user_id: int) -> dict[str, Any]:
-        """Switch the active role and refresh the visible toolset."""
-        result = switch_active_user_role(user_id=user_id, session_context=self._session_context)
+    def switch_role(
+        self,
+        user_id: int,
+    ) -> dict[str, Any]:
+        """Switch the active role and refresh visible tools."""
+
+        result = switch_active_user_role(
+            user_id=user_id,
+            session_context=self._session_context,
+        )
+
         self._refresh_visible_tools()
+
         if result.get("tools_updated"):
             self.notify_tools_changed()
+
         return result
 
     async def _run_stdio(self) -> None:
-        async with stdio_server() as (read_stream, write_stream):
-            await self._server.run(read_stream, write_stream, self._server.create_initialization_options())
+        async with stdio_server() as (
+            read_stream,
+            write_stream,
+        ):
+            await self._server.run(
+                read_stream,
+                write_stream,
+                self._server.create_initialization_options(),
+            )
 
     def run(self) -> None:
         """Run the server using stdio by default."""
+
         self.connect()
+
         if self.transport == "stdio":
-            asyncio.run(self._run_stdio())
+            asyncio.run(
+                self._run_stdio()
+            )
             return
-        if self.transport in {"streamable-http", "sse"}:
-            raise NotImplementedError("Remote transport adapters are not implemented yet")
+
+        if self.transport in {
+            "streamable-http",
+            "sse",
+        }:
+            raise NotImplementedError(
+                "Remote transport adapters are not implemented yet"
+            )
 
 
 if __name__ == "__main__":

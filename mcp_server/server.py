@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from mcp import types
 from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.stdio import stdio_server
 
 from planning_lab.mcp_executor import MarketLoopMCPExecutor
@@ -45,17 +46,65 @@ class MarketLoopMCPServer:
         self._session_context = SessionContext()
         self._active_tool_names: set[str] = set()
         self._session: Any | None = None
-        self._server = Server(
-            name,
-            version=version,
-            on_list_tools=self._list_tools,
-            on_call_tool=self._call_tool,
-            on_list_resources=self._list_resources,
-            on_read_resource=self._read_resource,
-            on_list_prompts=self._list_prompts,
-            on_get_prompt=self._get_prompt,
-            on_set_logging_level=self._set_logging_level,
-        )
+        # MCP 1.x registers handlers with decorators.  Passing callbacks to
+        # ``Server(...)`` was supported by an older SDK API and makes the
+        # server fail during construction with current 1.x releases.
+        self._server = Server(name, version=version)
+        self._register_protocol_handlers()
+
+    def _register_protocol_handlers(self) -> None:
+        """Adapt the project's handlers to the MCP 1.x decorator API."""
+
+        @self._server.list_tools()
+        async def list_tools_handler() -> types.ListToolsResult:
+            return await self._list_tools()
+
+        @self._server.call_tool(validate_input=False)
+        async def call_tool_handler(
+            tool_name: str,
+            arguments: dict[str, Any],
+        ) -> types.CallToolResult:
+            params = type(
+                "ToolParams",
+                (),
+                {"name": tool_name, "arguments": arguments, "meta": None},
+            )()
+            return await self._call_tool(self._server.request_context, params)
+
+        @self._server.list_resources()
+        async def list_resources_handler() -> types.ListResourcesResult:
+            return await self._list_resources(None, None)
+
+        @self._server.read_resource()
+        async def read_resource_handler(uri: Any) -> list[ReadResourceContents]:
+            result = await self._read_resource(None, type("ResourceParams", (), {"uri": uri})())
+            return [
+                ReadResourceContents(
+                    content=content.text,
+                    mime_type=content.mime_type,
+                )
+                for content in result.contents
+            ]
+
+        @self._server.list_prompts()
+        async def list_prompts_handler() -> types.ListPromptsResult:
+            return await self._list_prompts(None, None)
+
+        @self._server.get_prompt()
+        async def get_prompt_handler(
+            prompt_name: str,
+            arguments: dict[str, str] | None,
+        ) -> types.GetPromptResult:
+            params = type(
+                "PromptParams",
+                (),
+                {"name": prompt_name, "arguments": arguments or {}},
+            )()
+            return await self._get_prompt(None, params)
+
+        @self._server.set_logging_level()
+        async def set_logging_level_handler(_level: Any) -> None:
+            await self._set_logging_level(None, None)
 
     def initialize(self) -> dict[str, Any]:
         """Return the initialize payload for MCP capability negotiation."""
@@ -338,8 +387,8 @@ class MarketLoopMCPServer:
 
     async def _list_resources(
             self,
-            _context: Any,
-            _params: Any | None,
+            _context: Any = None,
+            _params: Any | None = None,
     ) -> types.ListResourcesResult:
         return types.ListResourcesResult(
             resources=[
@@ -381,8 +430,8 @@ class MarketLoopMCPServer:
 
     async def _list_prompts(
             self,
-            _context: Any,
-            _params: Any | None,
+            _context: Any = None,
+            _params: Any | None = None,
     ) -> types.ListPromptsResult:
         return types.ListPromptsResult(
             prompts=[

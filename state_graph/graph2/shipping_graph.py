@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -8,8 +9,10 @@ from planning_lab.algorithms.react import ReactResult, constrained_react
 from state_graph.core.models import GraphState, TransitionResult
 from state_graph.hitl.node import HITLNode
 from state_graph.hitl.policy import shipping_requires_human_intervention
-
+from state_graph.checkpointing.store import CheckpointStore
+from state_graph.tickets.service import FailureTicketService
 from .tools import check_tracking, escalate_to_hitl, open_carrier_claim
+
 
 SHIPPING_TOOLS = {
     "check_tracking": check_tracking,
@@ -31,9 +34,60 @@ class ShippingGraph:
     of letting the agent decide alone.
     """
 
-    def __init__(self, *, llm: BaseChatModel) -> None:
+    def __init__(
+            self,
+            *,
+            llm: BaseChatModel,
+            checkpoint_store: CheckpointStore | None = None,
+            failure_ticket_service: FailureTicketService | None = None,
+    ) -> None:
         self.llm = llm
         self.hitl = HITLNode()
+
+        self.checkpoints = checkpoint_store or CheckpointStore()
+        self.failure_tickets = (
+                failure_ticket_service or FailureTicketService()
+        )
+
+    # ------------------------------------------------------------------
+    # checkpoint helper
+    # ------------------------------------------------------------------
+    def _checkpoint_transition(
+            self,
+            state: GraphState,
+            result: TransitionResult,
+    ) -> TransitionResult:
+        """
+        Persist the state produced by a meaningful graph transition.
+
+        The checkpoint represents the state that should be resumed from
+        if the process dies after this transition.
+        """
+        updates = result.updates or {}
+
+        checkpoint_data = updates.get("data", state.data)
+        checkpoint_outputs = updates.get("outputs", state.outputs)
+
+        checkpoint_updates: dict[str, Any] = {
+            "current_node": result.next_node,
+            "status": result.status or state.status,
+            "data": checkpoint_data,
+            "outputs": checkpoint_outputs,
+            "transition_count": state.transition_count + 1,
+        }
+
+        if "waiting_request_id" in updates:
+            checkpoint_updates["waiting_request_id"] = updates[
+                "waiting_request_id"
+            ]
+
+        checkpoint_state = state.model_copy(
+            update=checkpoint_updates
+        )
+
+        self.checkpoints.save(checkpoint_state)
+
+        return result
 
     # ------------------------------------------------------------------
     # awaiting_input
@@ -41,13 +95,22 @@ class ShippingGraph:
 
     def awaiting_input(self, state: GraphState) -> TransitionResult:
         """Wait until a shipping issue is available."""
+
         if not state.goal.strip():
-            return TransitionResult(
-                next_node="awaiting_input",
-                status="waiting",
+            return self._checkpoint_transition(
+                state,
+                TransitionResult(
+                    next_node="awaiting_input",
+                    status="waiting",
+                ),
             )
 
-        return TransitionResult(next_node="decompose")
+        return self._checkpoint_transition(
+            state,
+            TransitionResult(
+                next_node="decompose",
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Addition 1: task decomposition
@@ -78,14 +141,17 @@ class ShippingGraph:
             if line.strip()
         ]
 
-        return TransitionResult(
-            next_node="constrained_react",
-            updates={
-                "data": {
-                    **state.data,
-                    "subtasks": subtasks,
+        return self._checkpoint_transition(
+            state,
+            TransitionResult(
+                next_node="constrained_react",
+                updates={
+                    "data": {
+                        **state.data,
+                        "subtasks": subtasks,
+                    },
                 },
-            },
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -109,11 +175,20 @@ class ShippingGraph:
         subtasks = state.data.get("subtasks", [])
         task = state.goal + "\n\nSubtasks:\n" + "\n".join(subtasks)
 
-        result = constrained_react(
-            task=task,
-            llm=self.llm,
-            tools=SHIPPING_TOOLS,
-        )
+        try:
+            result = constrained_react(
+                task=task,
+                llm=self.llm,
+                tools=SHIPPING_TOOLS,
+            )
+
+            self._validate_react_result(result)
+
+        except (Exception,) as exc:
+            return self._create_failure_ticket(
+                state,
+                exc,
+            )
 
         claim_amount = self._extract_claim_amount(result)
         policy_violation = self._detect_policy_violation(result)
@@ -149,13 +224,18 @@ class ShippingGraph:
                 policy_violation=policy_violation,
             )
 
-        return TransitionResult(
-            next_node="done",
-            status="done",
-            updates={
-                "data": updated_data,
-                "outputs": {"resolution": result.output},
-            },
+        return self._checkpoint_transition(
+            state,
+            TransitionResult(
+                next_node="done",
+                status="done",
+                updates={
+                    "data": updated_data,
+                    "outputs": {
+                        "resolution": result.output,
+                    },
+                },
+            ),
         )
 
     def _pause_for_review(
@@ -195,11 +275,14 @@ class ShippingGraph:
             "hitl_request_id": request_id,
         }
 
-        return TransitionResult(
-            next_node=pause_result.next_node,
-            status=pause_result.status,
-            updates=merged_updates,
-            error=pause_result.error,
+        return self._checkpoint_transition(
+            state,
+            TransitionResult(
+                next_node=pause_result.next_node,
+                status=pause_result.status,
+                updates=merged_updates,
+                error=pause_result.error,
+            ),
         )
 
     def _resume_from_hitl_decision(
@@ -253,6 +336,144 @@ class ShippingGraph:
                 },
             },
         )
+
+    # ------------------------------------------------------------------
+    # Failure Detection
+    # ------------------------------------------------------------------
+
+    def _validate_react_result(self, result: ReactResult) -> None:
+        """
+        Detect failures that cannot be fixed by simply retrying.
+
+        Graph 2 treats tool errors, malformed tool responses,
+        schema violations, and contradictory tracking data as
+        unplanned execution failures.
+        """
+
+        if not result.success:
+            raise RuntimeError(
+                "Constrained ReAct failed to produce a successful result."
+            )
+
+        statuses_by_tracking: dict[str, set[str]] = {}
+
+        for call in result.tool_calls:
+            tool_result = call.result
+
+            if isinstance(tool_result, Exception):
+                raise RuntimeError(
+                    f"Tool {call.tool_name} failed: {tool_result}"
+                )
+
+            if isinstance(tool_result, dict) and "error" in tool_result:
+                raise RuntimeError(
+                    f"Tool {call.tool_name} returned an error: "
+                    f"{tool_result['error']}"
+                )
+
+            if call.tool_name == "check_tracking":
+                if not isinstance(tool_result, dict):
+                    raise ValueError(
+                        "check_tracking returned an invalid response schema."
+                    )
+
+                required_fields = {
+                    "tracking_number",
+                    "status",
+                }
+
+                if not required_fields.issubset(tool_result):
+                    raise ValueError(
+                        "check_tracking response is missing required fields."
+                    )
+
+                tracking_number = str(
+                    tool_result["tracking_number"]
+                )
+
+                status = str(
+                    tool_result["status"]
+                ).strip().lower()
+
+                allowed_statuses = {
+                    "in_transit",
+                    "delivered",
+                    "lost",
+                    "investigating",
+                }
+
+                if status not in allowed_statuses:
+                    raise ValueError(
+                        f"Unknown tracking status: {status!r}"
+                    )
+
+                statuses_by_tracking.setdefault(
+                    tracking_number,
+                    set(),
+                ).add(status)
+
+            elif call.tool_name == "open_carrier_claim":
+                if not isinstance(tool_result, dict):
+                    raise ValueError(
+                        "open_carrier_claim returned an invalid response schema."
+                    )
+
+                if "claim_id" not in tool_result:
+                    raise ValueError(
+                        "open_carrier_claim response is missing claim_id."
+                    )
+
+                if "status" not in tool_result:
+                    raise ValueError(
+                        "open_carrier_claim response is missing status."
+                    )
+
+            elif call.tool_name == "escalate_to_hitl":
+                if not isinstance(tool_result, dict):
+                    raise ValueError(
+                        "escalate_to_hitl returned an invalid response schema."
+                    )
+
+        contradictory_tracking = {
+            tracking_number: statuses
+            for tracking_number, statuses in statuses_by_tracking.items()
+            if len(statuses) > 1
+        }
+
+        if contradictory_tracking:
+            raise RuntimeError(
+                "Contradictory carrier tracking data detected: "
+                f"{contradictory_tracking}"
+            )
+
+    def _create_failure_ticket(
+            self,
+            state: GraphState,
+            error: Exception,
+    ) -> TransitionResult:
+        """Create a persistent ticket for an unplanned execution failure."""
+
+        ticket_id = self.failure_tickets.create_ticket(
+            run_id=state.run_id,
+            graph_name=state.graph_name,
+            node_name=state.current_node,
+            error=str(error),
+            state=state.model_dump(mode="json"),
+        )
+
+        return TransitionResult(
+            next_node=state.current_node,
+            status="failed",
+            updates={
+                "waiting_ticket_id": ticket_id,
+                "data": {
+                    **state.data,
+                    "failure_ticket_id": ticket_id,
+                },
+            },
+            error=str(error),
+        )
+
 
     # ------------------------------------------------------------------
     # helpers

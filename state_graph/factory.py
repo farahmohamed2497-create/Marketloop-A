@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 from planning_lab.algorithms.environment import Environment
-
 from state_graph.core.models import GraphState
-
-from .graph1.graph import build_graph1
-from .graph2.graph import build_graph2
-from .graph3.graph import build_graph3
 
 
 def create_graph1(
@@ -18,12 +13,17 @@ def create_graph1(
 
 
 def create_graph2(
-    environment: Environment,
-    confidence_threshold: float = 0.70,
+    *,
+    llm,
 ):
+    """
+    Create the Shipping / Delivery Issue Investigation graph.
+
+    Graph 2 uses Task Decomposition as Addition 1 and
+    Constrained ReAct as Addition 2.
+    """
     return build_graph2(
-        environment=environment,
-        confidence_threshold=confidence_threshold,
+        llm=llm,
     )
 
 

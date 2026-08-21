@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from state_graph.core.engine import StateGraphEngine
 from state_graph.core.models import GraphState, TransitionResult
 from state_graph.core.transitions import TransitionTable
@@ -135,6 +133,10 @@ def test_hitl_trigger_pauses_and_persists_full_state() -> None:
     )
 
     final_state = engine.run(state)
+
+    print("STATUS:", final_state.status)
+    print("ERROR:", final_state.last_error)
+    print("DATA:", final_state.data)
 
     assert final_state.status == "waiting"
     assert final_state.waiting_request_id is not None

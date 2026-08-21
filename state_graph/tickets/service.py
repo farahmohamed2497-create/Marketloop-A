@@ -111,20 +111,39 @@ class FailureTicketService:
         ticket_id: str,
         resolution: str | None = None,
     ) -> None:
+        """Mark a ticket resolved after the corrective action is complete."""
+        self.set_ticket_status(ticket_id, "resolved", resolution=resolution)
+
+    def begin_investigation(self, ticket_id: str) -> None:
+        """Record that an administrator is actively investigating a ticket."""
+        self.set_ticket_status(ticket_id, "investigating")
+
+    def set_ticket_status(
+        self,
+        ticket_id: str,
+        status: str,
+        *,
+        resolution: str | None = None,
+    ) -> None:
+        """Transition a ticket through its explicit admin-visible lifecycle."""
+
+        if status not in {"open", "investigating", "resolved"}:
+            raise ValueError(f"Unsupported failure-ticket status: {status}")
 
         resolved_at = datetime.now(
             timezone.utc
-        ).isoformat()
+        ).isoformat() if status == "resolved" else None
 
         with self._get_connection() as connection:
             cursor = connection.execute(
                 """
                 UPDATE Failure_Tickets
-                SET status = 'resolved',
+                SET status = ?,
                     resolved_at = ?
                 WHERE ticket_id = ?
                 """,
                 (
+                    status,
                     resolved_at,
                     ticket_id,
                 ),

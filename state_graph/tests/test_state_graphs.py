@@ -268,6 +268,49 @@ def test_graph1_failure_ticket_persists_failure_state(tmp_path):
     assert ticket["state"]["return_id"] == "RET-42"
     assert ticket["node_name"] == "inspection"
 
+    service.begin_investigation(ticket_id)
+    assert service.get_ticket(ticket_id)["status"] == "investigating"
+
+    service.resolve_ticket(ticket_id)
+    assert service.get_ticket(ticket_id)["status"] == "resolved"
+
+
+def test_graph1_ticket_captures_the_classified_failed_checkpoint():
+    class RecordingCheckpointStore:
+        def save(self, _state: GraphState) -> None:
+            pass
+
+    class RecordingTicketService:
+        def __init__(self):
+            self.state = None
+
+        def create_ticket(self, **kwargs) -> str:
+            self.state = kwargs["state"]
+            return "ticket-42"
+
+    def inspection(_state: GraphState) -> TransitionResult:
+        raise TimeoutError("inspection tool timed out")
+
+    ticket_service = RecordingTicketService()
+    engine = StateGraphEngine(
+        transitions=TransitionTable(),
+        nodes={"inspection": inspection},
+        checkpoint_store=RecordingCheckpointStore(),
+        ticket_service=ticket_service,
+    )
+
+    failed = engine.step(
+        GraphState(
+            run_id=str(uuid.uuid4()),
+            graph_name="refund",
+            current_node="inspection",
+        )
+    )
+
+    assert failed.waiting_ticket_id == "ticket-42"
+    assert ticket_service.state["status"] == "failed"
+    assert ticket_service.state["data"]["failure"]["kind"] == "tool_error"
+
 
 def test_graph1_resumes_only_after_failure_ticket_is_resolved(tmp_path):
     database_path = tmp_path / "graph1-recovery.db"

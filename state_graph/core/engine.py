@@ -105,18 +105,6 @@ class StateGraphEngine:
 
             failure_kind = classify_failure(exc)
 
-            ticket_id = (
-                self.ticket_service.create_ticket(
-                    run_id=state.run_id,
-                    graph_name=state.graph_name,
-                    node_name=node,
-                    error=str(exc),
-                    state=state.model_dump(
-                        mode="json"
-                    ),
-                )
-            )
-
             failed = state.model_copy(
                 update={
                     "status": "failed",
@@ -132,7 +120,23 @@ class StateGraphEngine:
                             "node": node,
                         },
                     },
+                }
+            )
 
+            ticket_id = (
+                self.ticket_service.create_ticket(
+                    run_id=state.run_id,
+                    graph_name=state.graph_name,
+                    node_name=node,
+                    error=str(exc),
+                    state=failed.model_dump(
+                        mode="json"
+                    ),
+                )
+            )
+
+            failed = failed.model_copy(
+                update={
                     "waiting_ticket_id":
                         ticket_id,
                 }

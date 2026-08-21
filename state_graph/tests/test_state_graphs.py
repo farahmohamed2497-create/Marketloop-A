@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
+import pytest
 
 from planning_lab.algorithms.environment import Environment
 from state_graph.checkpointing.store import CheckpointStore
@@ -263,6 +264,49 @@ def test_graph1_failure_ticket_persists_failure_state(tmp_path):
     assert ticket["status"] == "open"
     assert ticket["state"]["return_id"] == "RET-42"
     assert ticket["node_name"] == "inspection"
+
+
+def test_graph1_resumes_only_after_failure_ticket_is_resolved(tmp_path):
+    database_path = tmp_path / "graph1-recovery.db"
+
+    def connect():
+        return sqlite3.connect(database_path)
+
+    repaired = False
+
+    def inspect_return(_state: GraphState) -> TransitionResult:
+        if not repaired:
+            raise TimeoutError("warehouse inspection tool is unavailable")
+        return TransitionResult(next_node="done", status="done")
+
+    engine = StateGraphEngine(
+        transitions=TransitionTable(),
+        nodes={"inspection": inspect_return},
+        checkpoint_store=CheckpointStore(connection_factory=connect),
+        ticket_service=FailureTicketService(connection_factory=connect),
+    )
+    engine.transitions.add("inspection", "done")
+    initial = GraphState(
+        run_id=str(uuid.uuid4()),
+        graph_name="refund",
+        current_node="inspection",
+        goal="Inspect return RET-42 before refunding it.",
+    )
+
+    failed = engine.run(initial)
+
+    assert failed.status == "failed"
+    assert failed.waiting_ticket_id is not None
+    with pytest.raises(ValueError, match="must be resolved"):
+        engine.resume(initial.run_id)
+
+    engine.ticket_service.resolve_ticket(failed.waiting_ticket_id)
+    repaired = True
+    resumed = engine.resume(initial.run_id)
+
+    assert resumed.status == "done"
+    assert resumed.current_node == "done"
+    assert resumed.transition_count == 1
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

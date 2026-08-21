@@ -221,6 +221,26 @@ class StateGraphEngine:
             )
 
         elif state.status == "failed":
+            ticket_id = state.waiting_ticket_id
+
+            if ticket_id is None:
+                raise ValueError(
+                    f"Failed run {run_id!r} has no recovery ticket."
+                )
+
+            ticket = self.ticket_service.get_ticket(ticket_id)
+
+            if ticket is None:
+                raise ValueError(
+                    f"Recovery ticket {ticket_id!r} was not found."
+                )
+
+            if ticket["status"] != "resolved":
+                raise ValueError(
+                    f"Recovery ticket {ticket_id!r} must be resolved "
+                    "before the run can resume."
+                )
+
             state = state.model_copy(
                 update={
                     "status": "running",

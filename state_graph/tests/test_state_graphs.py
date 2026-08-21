@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import sqlite3
 import uuid
 from unittest.mock import MagicMock
 
@@ -157,6 +158,32 @@ def test_graph1_checkpoints_initial_and_each_transition():
     ]
     assert [snapshot.transition_count for snapshot in store.snapshots] == [0, 1, 2]
     assert store.snapshots[1].data == {"request_id": "return-42"}
+
+
+def test_graph1_restores_latest_checkpoint_after_store_restart(tmp_path):
+    """A new checkpoint-store instance resumes Graph 1 from durable state."""
+
+    database_path = tmp_path / "graph1-checkpoints.db"
+
+    def connect():
+        return sqlite3.connect(database_path)
+
+    original_store = CheckpointStore(connection_factory=connect)
+    initial = GraphState(
+        run_id=str(uuid.uuid4()),
+        graph_name="refund",
+        current_node="awaiting_inspection",
+        status="waiting",
+        goal="Refund a damaged item after warehouse inspection.",
+        data={"return_id": "RET-42", "photos_received": True},
+        transition_count=3,
+    )
+    original_store.save(initial)
+
+    restarted_store = CheckpointStore(connection_factory=connect)
+    recovered = restarted_store.load_latest(initial.run_id)
+
+    assert recovered == initial
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from mcp_server.db import get_connection
 
@@ -16,11 +17,20 @@ class CheckpointStore:
     allowing a graph to resume after process restart.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        connection_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        """Create a durable store backed by the configured database.
+
+        ``connection_factory`` keeps the production default while allowing
+        a fresh process (and tests) to reopen the same checkpoint database.
+        """
+        self._get_connection = connection_factory or get_connection
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS State_Checkpoints (
@@ -56,7 +66,7 @@ class CheckpointStore:
             timezone.utc
         ).isoformat()
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             connection.execute(
                 """
                 INSERT INTO State_Checkpoints (
@@ -88,7 +98,7 @@ class CheckpointStore:
         run_id: str,
     ) -> GraphState | None:
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             row = connection.execute(
                 """
                 SELECT state_json

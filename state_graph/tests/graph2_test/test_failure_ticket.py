@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import sqlite3
+
+from state_graph.core.engine import StateGraphEngine
+from state_graph.core.models import GraphState
+from state_graph.core.transitions import TransitionTable
+from state_graph.checkpointing.store import CheckpointStore
+from state_graph.tickets.service import FailureTicketService
+
+
+def test_unplanned_failure_creates_recovery_ticket(tmp_path):
+    db_path = str(tmp_path / "tickets.db")
+
+    def broken_node(state):
+        raise RuntimeError("carrier returned contradictory tracking data")
+
+    store = CheckpointStore(
+        connection_factory=lambda: sqlite3.connect(db_path)
+    )
+
+    ticket_service = FailureTicketService(
+        connection_factory=lambda: sqlite3.connect(db_path)
+    )
+
+    engine = StateGraphEngine(
+        transitions=TransitionTable(),
+        nodes={"constrained_react": broken_node},
+        checkpoint_store=store,
+        ticket_service=ticket_service,
+    )
+
+    state = GraphState(
+        run_id="ticket-run",
+        graph_name="shipping",
+        current_node="constrained_react",
+        goal="Shipment tracking is inconsistent",
+    )
+
+    result = engine.step(state)
+
+    assert result.status == "failed"
+    assert result.waiting_ticket_id is not None
+
+    ticket = ticket_service.get_ticket(
+        result.waiting_ticket_id
+    )
+
+    assert ticket is not None
+    assert ticket["run_id"] == "ticket-run"
+    assert ticket["graph_name"] == "shipping"
+    assert ticket["node_name"] == "constrained_react"
+    assert ticket["status"] == "open"
+    assert "contradictory" in ticket["error"]

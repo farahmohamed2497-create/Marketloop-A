@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .exceptions import InvalidTransitionError
+from .exceptions import InvalidTransitionError, classify_failure
 from .models import GraphState, TransitionResult
 from .transitions import TransitionTable
 
@@ -59,12 +59,12 @@ class StateGraphEngine:
 
         node = state.current_node
 
-        if node not in self.nodes:
-            raise InvalidTransitionError(
-                f"Unknown graph node: {node}"
-            )
-
         try:
+            if node not in self.nodes:
+                raise InvalidTransitionError(
+                    f"Unknown graph node: {node}"
+                )
+
             result = self.nodes[node](state)
 
             if result.next_node != node:
@@ -103,6 +103,8 @@ class StateGraphEngine:
 
         except Exception as exc:
 
+            failure_kind = classify_failure(exc)
+
             ticket_id = (
                 self.ticket_service.create_ticket(
                     run_id=state.run_id,
@@ -120,16 +122,23 @@ class StateGraphEngine:
                     "status": "failed",
 
                     "last_error":
-                        str(exc),
+                        f"[{failure_kind.value}] {exc}",
+
+                    "data": {
+                        **state.data,
+                        "failure": {
+                            "kind": failure_kind.value,
+                            "message": str(exc),
+                            "node": node,
+                        },
+                    },
 
                     "waiting_ticket_id":
                         ticket_id,
                 }
             )
 
-            self.checkpoint_store.save(
-                failed
-            )
+            self.checkpoint_store.save(failed)
 
             return failed
 

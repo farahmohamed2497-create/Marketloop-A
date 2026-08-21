@@ -5,6 +5,8 @@ import sqlite3
 import uuid
 from unittest.mock import MagicMock
 
+from pydantic import BaseModel
+
 from planning_lab.algorithms.environment import Environment
 from state_graph.checkpointing.store import CheckpointStore
 from state_graph.core.engine import StateGraphEngine
@@ -184,6 +186,59 @@ def test_graph1_restores_latest_checkpoint_after_store_restart(tmp_path):
     recovered = restarted_store.load_latest(initial.run_id)
 
     assert recovered == initial
+
+
+def test_graph1_classifies_tool_and_schema_failures():
+    class RecordingCheckpointStore:
+        def save(self, _state: GraphState) -> None:
+            pass
+
+    class RecordingTicketService:
+        def __init__(self):
+            self.errors: list[str] = []
+
+        def create_ticket(self, **kwargs) -> str:
+            self.errors.append(kwargs["error"])
+            return "ticket-42"
+
+    class ReturnPayload(BaseModel):
+        order_id: int
+
+    def tool_node(_state: GraphState) -> TransitionResult:
+        raise TimeoutError("carrier tool timed out")
+
+    def schema_node(_state: GraphState) -> TransitionResult:
+        ReturnPayload.model_validate({"order_id": "not-an-integer"})
+        raise AssertionError("ValidationError should have been raised")
+
+    transitions = TransitionTable()
+    ticket_service = RecordingTicketService()
+    engine = StateGraphEngine(
+        transitions=transitions,
+        nodes={"tool": tool_node, "schema": schema_node},
+        checkpoint_store=RecordingCheckpointStore(),
+        ticket_service=ticket_service,
+    )
+
+    tool_failure = engine.step(
+        GraphState(
+            run_id=str(uuid.uuid4()),
+            graph_name="refund",
+            current_node="tool",
+        )
+    )
+    schema_failure = engine.step(
+        GraphState(
+            run_id=str(uuid.uuid4()),
+            graph_name="refund",
+            current_node="schema",
+        )
+    )
+
+    assert tool_failure.data["failure"]["kind"] == "tool_error"
+    assert schema_failure.data["failure"]["kind"] == "schema_validation_error"
+    assert tool_failure.waiting_ticket_id == "ticket-42"
+    assert len(ticket_service.errors) == 2
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

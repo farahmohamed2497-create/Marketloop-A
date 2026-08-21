@@ -113,6 +113,62 @@ not run again after restart.
 
 ---
 
+# Graph 2 — Shipping / Delivery Issue Investigation
+
+## Overview
+Graph 2 manages shipping and delivery investigations (damaged, missing, or delayed packages) involving unpredictable third-party carrier responses and contradictory tracking data. It handles both expected human-in-the-loop (HITL) escalations and unexpected runtime failures with robust state checkpointing and recovery.
+
+---
+
+## Core Components & Nodes
+
+- **Task Decomposition (`decompose`)**: Breaks down unstructured customer complaints into concrete subtasks before agent execution. Subtasks are stored in the graph state to persist across checkpoints and recoveries.
+- **Constrained ReAct (`constrained_react`)**: Executes the investigation strictly using allowed tools:
+  - `check_tracking`
+  - `open_carrier_claim`
+  - `escalate_to_hitl`
+  - *Outcomes*: Can complete successfully, pause for HITL review, or route to failure handling upon errors.
+
+---
+
+## Checkpointing & State Persistence
+
+- **State Persistence**: A complete `GraphState` is saved after every meaningful transition (containing `run_id`, `graph_name`, `current_node`, `status`, `transition_count`, `data`, and `outputs`).
+- **Checkpoint Restore**: A new `StateGraphEngine` instance can reopen the database, restore the latest run state, and resume execution without starting from the beginning.
+- **No Node Re-execution**: Nodes completed prior to an interruption (e.g., `decompose`) are preserved in the checkpoint and skipped during recovery to avoid duplicated work.
+
+---
+
+## Failure Handling: HITL vs. Failure Tickets
+
+| Feature | Human-in-the-Loop (HITL) | Failure Ticket System |
+| **Purpose** | Expected business logic pause | Unexpected technical/execution failure |
+| **Triggers** | Decisions requiring human authorization or domain review | Tool crashes, schema validation errors, contradictory API data, unhandled exceptions |
+| **Lifecycle** | Awaits operator input $\rightarrow$ resumes flow | `open` $\rightarrow$ `investigating` $\rightarrow$ `resolved` |
+| **Resume Point** | Next configured node | Exact failed state restored from checkpoint |
+
+---
+
+## Key Recovery Guarantees
+
+- Automated checkpointing on state transitions.
+- Full state restoration across process kills and engine restarts.
+- Detection and classification of unexpected runtime errors before ticket generation.
+- Failure ticket creation paired with the failed state checkpoint.
+- Resumption directly from the persisted failure state upon admin ticket resolution.
+
+---
+
+## Test Suite Coverage
+
+- **`test_checkpoint_write.py`**: Validates checkpoint persistence, node state, and transition counters after valid steps.
+- **`test_checkpoint_restore.py`**: Tests database reopening and state restoration across new engine instances.
+- **`test_failure_detection.py`**: Verifies classification of schema and tool errors as execution failures.
+- **`test_failure_ticket.py`**: Ensures tickets capture metadata (`run_id`, `node`, `error`, `status`).
+- **`test_resume_after_ticket_resolution.py`**: Validates the end-to-end failure $\rightarrow$ ticket $\rightarrow$ resolution $\rightarrow$ resume path.
+- **`test_process_kill_resume.py`**: Confirms recovery after hard process termination.
+- **`test_no_reexecution_after_recovery.py`**: Confirms previously completed nodes do not re-run after restart.
+
 ## Running the package
 
 From the repository root:

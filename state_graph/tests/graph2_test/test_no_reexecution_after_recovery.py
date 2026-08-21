@@ -1,46 +1,100 @@
 from __future__ import annotations
 
-from unittest.mock import Mock
+import sqlite3
 
 from state_graph.core.engine import StateGraphEngine
-from state_graph.core.models import GraphState
+from state_graph.core.models import GraphState, TransitionResult
+from state_graph.core.transitions import TransitionTable
 from state_graph.checkpointing.store import CheckpointStore
-from state_graph.tickets.service import FailureTicketService
-
-from state_graph.graph2.graph import build_graph2
 
 
-def test_shipping_graph_creates_recovery_ticket_on_tracking_failure():
-    llm = Mock()
+def test_recovery_does_not_reexecute_completed_nodes(tmp_path):
+    db_path = str(tmp_path / "no_reexecution.db")
 
-    checkpoint_store = CheckpointStore()
-    ticket_service = FailureTicketService()
+    store = CheckpointStore(
+        connection_factory=lambda: sqlite3.connect(db_path)
+    )
 
-    engine = build_graph2(
-        llm=llm,
-        checkpoint_store=checkpoint_store,
-        ticket_service=ticket_service,
+    execution_count = {
+        "decompose": 0,
+        "constrained_react": 0,
+    }
+
+    def decompose(state):
+        execution_count["decompose"] += 1
+
+        return TransitionResult(
+            next_node="constrained_react",
+            updates={
+                "data": {
+                    **state.data,
+                    "decomposition_done": True,
+                }
+            },
+        )
+
+    def constrained_react(state):
+        execution_count["constrained_react"] += 1
+
+        return TransitionResult(
+            next_node="done",
+            status="done",
+            updates={
+                "outputs": {
+                    "resolution": "Shipment investigation completed."
+                }
+            },
+        )
+
+    transitions = TransitionTable()
+    transitions.add("decompose", "constrained_react")
+    transitions.add("constrained_react", "done")
+
+    engine = StateGraphEngine(
+        transitions=transitions,
+        nodes={
+            "decompose": decompose,
+            "constrained_react": constrained_react,
+        },
+        checkpoint_store=store,
     )
 
     state = GraphState(
-        run_id="shipping-graph-failure-test",
+        run_id="no-rerun",
         graph_name="shipping",
-        current_node="tracking",
-        goal=(
-            "Customer reports that the package did not arrive "
-            "and carrier tracking data is contradictory."
-        ),
+        current_node="decompose",
+        goal="Package is missing",
     )
 
-    result = engine.step(state)
+    first = engine.step(state)
 
-    assert result.status == "failed"
-    assert result.waiting_ticket_id is not None
+    assert first.current_node == "constrained_react"
+    assert execution_count["decompose"] == 1
 
-    ticket = ticket_service.get_ticket(
-        result.waiting_ticket_id
+    # Simulate process restart.
+    new_store = CheckpointStore(
+        connection_factory=lambda: sqlite3.connect(db_path)
     )
 
-    assert ticket is not None
-    assert ticket["graph_name"] == "shipping"
-    assert ticket["status"] == "open"
+    new_engine = StateGraphEngine(
+        transitions=transitions,
+        nodes={
+            "decompose": decompose,
+            "constrained_react": constrained_react,
+        },
+        checkpoint_store=new_store,
+    )
+
+    recovered = new_engine.recover("no-rerun")
+
+    assert recovered.current_node == "constrained_react"
+
+    final = new_engine.run(recovered)
+
+    assert final.status == "done"
+
+    # Decomposition must NOT run again.
+    assert execution_count["decompose"] == 1
+
+    # Only the unfinished node runs.
+    assert execution_count["constrained_react"] == 1

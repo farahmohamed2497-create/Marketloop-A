@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from planning_lab.algorithms.environment import Environment
 from state_graph.checkpointing.store import CheckpointStore
 from state_graph.core.engine import StateGraphEngine
-from state_graph.core.models import GraphState
+from state_graph.core.models import GraphState, TransitionResult
 from state_graph.core.transitions import TransitionTable
 from state_graph.graph1.refund_graph import RefundGraph
 
@@ -106,6 +106,57 @@ def test_engine_persists_state():
 
     assert recovered.status == "done"
     assert recovered.current_node == "done"
+
+
+def test_graph1_checkpoints_initial_and_each_transition():
+    """Graph 1 keeps a recoverable snapshot at every meaningful step."""
+
+    class RecordingCheckpointStore:
+        def __init__(self):
+            self.snapshots: list[GraphState] = []
+
+        def save(self, state: GraphState) -> None:
+            self.snapshots.append(state.model_copy(deep=True))
+
+    transitions = TransitionTable()
+    transitions.add("awaiting_input", "policy_check")
+    transitions.add("policy_check", "done")
+
+    def awaiting_input(_state: GraphState) -> TransitionResult:
+        return TransitionResult(
+            next_node="policy_check",
+            updates={"data": {"request_id": "return-42"}},
+        )
+
+    def policy_check(_state: GraphState) -> TransitionResult:
+        return TransitionResult(next_node="done", status="done")
+
+    store = RecordingCheckpointStore()
+    engine = StateGraphEngine(
+        transitions=transitions,
+        nodes={
+            "awaiting_input": awaiting_input,
+            "policy_check": policy_check,
+        },
+        checkpoint_store=store,
+    )
+    state = GraphState(
+        run_id=str(uuid.uuid4()),
+        graph_name="refund",
+        current_node="awaiting_input",
+        goal="Process a damaged-item refund request.",
+    )
+
+    result = engine.run(state)
+
+    assert result.status == "done"
+    assert [snapshot.current_node for snapshot in store.snapshots] == [
+        "awaiting_input",
+        "policy_check",
+        "done",
+    ]
+    assert [snapshot.transition_count for snapshot in store.snapshots] == [0, 1, 2]
+    assert store.snapshots[1].data == {"request_id": "return-42"}
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

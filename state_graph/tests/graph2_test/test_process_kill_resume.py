@@ -1,123 +1,76 @@
 from __future__ import annotations
 
-import json
+import sqlite3
 import subprocess
 import sys
 
+from state_graph.checkpointing.store import CheckpointStore
 
-def test_process_kill_recovery(tmp_path):
+
+def test_process_kill_mid_run_then_restart_and_recover(tmp_path):
     db_path = tmp_path / "process_kill.db"
 
-    worker = r"""
-from __future__ import annotations
+    worker_code = f"""
+import sqlite3
+import time
 
-import sys
-
-from state_graph.checkpointing.store import CheckpointStore
 from state_graph.core.models import GraphState
+from state_graph.checkpointing.store import CheckpointStore
 
-
-db_path = sys.argv[1]
-
-def connection_factory():
-    import sqlite3
-    return sqlite3.connect(db_path)
+db_path = r"{db_path}"
 
 store = CheckpointStore(
-    connection_factory=connection_factory
+    connection_factory=lambda: sqlite3.connect(db_path)
 )
 
 state = GraphState(
     run_id="process-kill-run",
     graph_name="shipping",
-    current_node="awaiting_carrier",
+    current_node="constrained_react",
     goal="Package is missing",
-    transition_count=1,
-    data={
-        "completed_steps": [
-            "check_tracking"
+    transition_count=2,
+    data={{
+        "subtasks": [
+            "check tracking",
+            "investigate carrier",
         ]
-    },
+    }},
 )
 
 store.save(state)
 
-print("CHECKPOINT_CREATED", flush=True)
+print("CHECKPOINT_SAVED", flush=True)
 
-# Simulate process termination after checkpoint creation.
-raise SystemExit(137)
+while True:
+    time.sleep(1)
 """
 
-    first_process = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            worker,
-            str(db_path),
-        ],
-        capture_output=True,
+    process = subprocess.Popen(
+        [sys.executable, "-c", worker_code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     )
 
-    assert "CHECKPOINT_CREATED" in first_process.stdout
+    assert process.stdout is not None
 
-    restore_script = r"""
-from __future__ import annotations
+    line = process.stdout.readline()
 
-import json
-import sys
+    assert "CHECKPOINT_SAVED" in line
 
-from state_graph.checkpointing.store import CheckpointStore
+    process.kill()
+    process.wait()
 
-
-db_path = sys.argv[1]
-
-def connection_factory():
-    import sqlite3
-    return sqlite3.connect(db_path)
-
-store = CheckpointStore(
-    connection_factory=connection_factory
-)
-
-state = store.load_latest(
-    "process-kill-run"
-)
-
-assert state is not None
-assert state.current_node == "awaiting_carrier"
-
-# The completed transition must still be present.
-assert "check_tracking" in state.data["completed_steps"]
-
-print(
-    json.dumps(
-        {
-            "run_id": state.run_id,
-            "node": state.current_node,
-            "completed_steps": state.data["completed_steps"],
-        }
-    )
-)
-"""
-
-    second_process = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            restore_script,
-            str(db_path),
-        ],
-        capture_output=True,
-        text=True,
+    store = CheckpointStore(
+        connection_factory=lambda: sqlite3.connect(str(db_path))
     )
 
-    assert second_process.returncode == 0
+    recovered = store.load_latest("process-kill-run")
 
-    restored = json.loads(
-        second_process.stdout
-    )
-
-    assert restored["run_id"] == "process-kill-run"
-    assert restored["node"] == "awaiting_carrier"
-    assert "check_tracking" in restored["completed_steps"]
+    assert recovered is not None
+    assert recovered.current_node == "constrained_react"
+    assert recovered.transition_count == 2
+    assert recovered.data["subtasks"] == [
+        "check tracking",
+        "investigate carrier",
+    ]

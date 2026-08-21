@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import random
 import sqlite3
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
@@ -307,6 +310,90 @@ def test_graph1_resumes_only_after_failure_ticket_is_resolved(tmp_path):
     assert resumed.status == "done"
     assert resumed.current_node == "done"
     assert resumed.transition_count == 1
+
+
+def test_graph1_recovers_after_process_is_killed(tmp_path):
+    """A restarted process continues after, not before, the last checkpoint."""
+
+    database_path = tmp_path / "graph1-crash-recovery.db"
+    run_id = str(uuid.uuid4())
+    project_root = Path(__file__).resolve().parents[2]
+    child_program = f"""
+import os
+import sqlite3
+from state_graph.checkpointing.store import CheckpointStore
+from state_graph.core.engine import StateGraphEngine
+from state_graph.core.models import GraphState, TransitionResult
+from state_graph.core.transitions import TransitionTable
+
+def connect():
+    return sqlite3.connect({str(database_path)!r})
+
+def collect_return(state):
+    return TransitionResult(
+        next_node='awaiting_inspection',
+        updates={{'data': {{'return_id': 'RET-42'}}}},
+    )
+
+def await_inspection(_state):
+    os._exit(86)
+
+transitions = TransitionTable()
+transitions.add('collect_return', 'awaiting_inspection')
+engine = StateGraphEngine(
+    transitions=transitions,
+    nodes={{
+        'collect_return': collect_return,
+        'awaiting_inspection': await_inspection,
+    }},
+    checkpoint_store=CheckpointStore(connection_factory=connect),
+    ticket_service=object(),
+)
+engine.run(GraphState(
+    run_id={run_id!r},
+    graph_name='refund',
+    current_node='collect_return',
+    goal='Collect and inspect a damaged-item return.',
+))
+"""
+
+    crashed = subprocess.run(
+        [sys.executable, "-c", child_program],
+        cwd=project_root,
+        check=False,
+    )
+
+    assert crashed.returncode == 86
+
+    def connect():
+        return sqlite3.connect(database_path)
+
+    def collect_return_should_not_run(_state: GraphState) -> TransitionResult:
+        raise AssertionError("Completed node was executed after restart")
+
+    def await_inspection(_state: GraphState) -> TransitionResult:
+        return TransitionResult(next_node="done", status="done")
+
+    transitions = TransitionTable()
+    transitions.add("collect_return", "awaiting_inspection")
+    transitions.add("awaiting_inspection", "done")
+    restarted_engine = StateGraphEngine(
+        transitions=transitions,
+        nodes={
+            "collect_return": collect_return_should_not_run,
+            "awaiting_inspection": await_inspection,
+        },
+        checkpoint_store=CheckpointStore(connection_factory=connect),
+        ticket_service=object(),
+    )
+
+    checkpoint = restarted_engine.recover(run_id)
+    resumed = restarted_engine.run(checkpoint)
+
+    assert checkpoint.current_node == "awaiting_inspection"
+    assert checkpoint.data == {"return_id": "RET-42"}
+    assert resumed.status == "done"
+    assert resumed.transition_count == 2
 
 
 def test_refund_lats_node_stores_result(monkeypatch):

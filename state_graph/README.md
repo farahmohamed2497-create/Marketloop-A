@@ -75,37 +75,41 @@ The checkpoint contains:
 - timestamp
 
 A new process can restore the latest checkpoint using
-`RecoveryService`.
+`StateGraphEngine.recover()`.
 
 ---
 
-## HITL versus Failure Tickets
+## Graph 1: tickets versus HITL
 
-HITL is an expected pause.
+Graph 1 (Return / Refund Resolution) uses two deliberately separate pause
+paths. They must not be treated as interchangeable.
 
-Examples:
+### Expected decision: HITL
 
-- amount above threshold
-- low confidence
-- policy conflict
-- irreversible action
+`RefundGraph.lats_node()` calls `HITLNode.pause()` when a refund amount
+exceeds the approval threshold, the policy conflicts, or the LLM confidence
+is too low. This is an expected business decision, so the run is checkpointed
+with `status="waiting"` and `waiting_request_id`. An administrator resolves
+the HITL request and supplies the decision before the workflow continues.
 
-A failure ticket is different.
+    running -> waiting -> admin decision -> resume
 
-A ticket is created when an unexpected failure occurs, such as:
+### Unplanned error: failure ticket
 
-- tool error
-- invalid data
-- schema validation failure
-- unhandled node exception
+`StateGraphEngine.step()` catches errors that a Graph 1 node cannot safely
+retry. Tool/network failures and schema-validation failures are classified,
+the failed state is checkpointed, and `FailureTicketService.create_ticket()`
+creates a durable ticket with the node name and saved state. The run uses
+`status="failed"` and `waiting_ticket_id`; it cannot resume while the ticket
+is still open.
 
-HITL:
+    running -> failed -> ticket(open) -> ticket(resolved) -> resume
 
-    running -> paused_hitl -> admin decision -> resume
-
-Failure:
-
-    running -> failed -> ticket -> resolved -> resume
+After an administrator resolves the failure ticket,
+`StateGraphEngine.resume()` reloads the latest checkpoint and executes only
+the unfinished node. The crash-recovery test deliberately terminates a
+separate process after a checkpoint and verifies that the completed node is
+not run again after restart.
 
 ---
 

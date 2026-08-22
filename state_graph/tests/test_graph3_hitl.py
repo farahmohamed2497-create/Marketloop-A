@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
 from state_graph.core.models import GraphState, TransitionResult
+from state_graph.core.engine import StateGraphEngine
+from state_graph.core.transitions import TransitionTable
 from state_graph.graph3.inventory_graph import InventoryGraph
 from state_graph.hitl.policy import inventory_requires_human_intervention
 
@@ -61,3 +63,58 @@ def test_inventory_graph_pauses_and_queues_admin_task(monkeypatch):
     assert result.updates["waiting_request_id"] == "inventory-request-1"
     assert queue.items[0]["request_id"] == "inventory-request-1"
     assert queue.items[0]["state"]["data"]["quantity_variance"] == 12
+
+
+def test_inventory_graph_resumes_with_admin_decision(monkeypatch):
+    queue = FakeQueue()
+    graph = InventoryGraph(llm=object(), task_queue=queue)
+    graph.hitl = FakeHITL()
+    calls = {"count": 0}
+
+    def react(**_kwargs):
+        calls["count"] += 1
+        return SimpleNamespace(
+            success=False,
+            output="Escalated to human review.",
+            confidence=0.0,
+            iterations=1,
+            escalated=True,
+        )
+
+    monkeypatch.setattr("state_graph.graph3.inventory_graph.constrained_react", react)
+
+    class Store:
+        def __init__(self):
+            self.states = {}
+
+        def save(self, state):
+            self.states[state.run_id] = state.model_copy(deep=True)
+
+        def load_latest(self, run_id):
+            return self.states.get(run_id)
+
+    store = Store()
+    transitions = TransitionTable()
+    transitions.add("inventory_react", "done")
+    engine = StateGraphEngine(
+        transitions=transitions,
+        nodes=graph.nodes(),
+        checkpoint_store=store,
+        ticket_service=object(),
+    )
+    paused = engine.run(
+        GraphState(
+            run_id="inventory-run-2",
+            graph_name="inventory",
+            current_node="inventory_react",
+            goal="Resolve warehouse discrepancy.",
+        )
+    )
+    request_id = paused.waiting_request_id
+    graph.hitl.requests[request_id]["decision"] = "approve"
+
+    resumed = engine.resume("inventory-run-2")
+
+    assert resumed.status == "done"
+    assert resumed.outputs["hitl_decision"] == "approve"
+    assert calls["count"] == 1

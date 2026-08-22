@@ -22,6 +22,12 @@ from .db import get_connection
 from .tools.session import SessionContext, switch_active_user_role
 
 
+# MCP serializes this field as ``mimeType``. Keep the snake_case accessor
+# used throughout this repository without changing the protocol payload.
+if not hasattr(types.Resource, "mime_type"):
+    types.Resource.mime_type = property(lambda resource: resource.mimeType)
+
+
 # The SDK deprecates the logging/sampling capabilities the assignment requires,
 # and the dispatcher logs full tracebacks for expected tool rejections.
 # Quiet both so live demos and agent output stay clean; errors still reach
@@ -382,19 +388,21 @@ class MarketLoopMCPServer:
     async def _list_tools(
         self,
         *_args: Any,
-    ) -> list[types.Tool]:
+    ) -> types.ListToolsResult:
         self._refresh_visible_tools()
 
-        return [
-            self._build_tool(tool)
-            for tool in self._visible_tools
-        ]
+        return types.ListToolsResult(
+            tools=[
+                self._build_tool(tool)
+                for tool in self._visible_tools
+            ]
+        )
 
     async def _call_tool(
         self,
         name_or_request: Any,
         arguments_or_params: Any | None = None,
-    ) -> list[types.ContentBlock]:
+    ) -> types.CallToolResult | list[types.ContentBlock]:
         """
         Support both MCP v1 direct calls and test-style request/params calls.
         """
@@ -409,6 +417,7 @@ class MarketLoopMCPServer:
                 or {}
             )
             fallback_context = None
+            supplied_meta = None
 
         else:
             fallback_context = (
@@ -431,6 +440,7 @@ class MarketLoopMCPServer:
                 )
                 or {}
             )
+            supplied_meta = getattr(params, "meta", None)
 
         self._refresh_visible_tools()
 
@@ -454,12 +464,8 @@ class MarketLoopMCPServer:
             if current_name != tool_name:
                 continue
 
-            meta = (
-                getattr(
-                    request_context,
-                    "meta",
-                    None,
-                )
+            meta = supplied_meta or (
+                getattr(request_context, "meta", None)
                 if request_context is not None
                 else None
             )
@@ -580,12 +586,20 @@ class MarketLoopMCPServer:
                     ):
                         await session.send_tool_list_changed()
 
-            return [
+            content = [
                 types.TextContent(
                     type="text",
                     text=str(result),
                 )
             ]
+
+            # Direct v1 handler calls return content for the SDK wrapper.
+            # The repository's protocol-level tests call the legacy
+            # request/params shape and expect the complete MCP result.
+            if fallback_context is not None:
+                return types.CallToolResult(content=content)
+
+            return content
 
         raise ValueError(
             f"Unknown tool: {tool_name}"
@@ -610,30 +624,24 @@ class MarketLoopMCPServer:
     async def _list_resources(
         self,
         *_args: Any,
-    ) -> list[types.Resource]:
-        return [
-            types.Resource(
-                name=name,
-                description=(
-                    resource.__doc__
-                    or ""
-                ),
-                uri=AnyUrl(
-                    self._resource_uri(
-                        name,
-                        resource,
-                    )
-                ),
-                mimeType="text/markdown",
-            )
-            for name, resource in self._resources
-        ]
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[
+                types.Resource(
+                    name=name,
+                    description=(resource.__doc__ or ""),
+                    uri=AnyUrl(self._resource_uri(name, resource)),
+                    mimeType="text/markdown",
+                )
+                for name, resource in self._resources
+            ]
+        )
 
     async def _read_resource(
         self,
         uri_or_request: Any,
         params: Any | None = None,
-    ) -> str:
+    ) -> str | types.ReadResourceResult:
         """
         Support both:
 
@@ -663,7 +671,19 @@ class MarketLoopMCPServer:
                 )
                 == uri_str
             ):
-                return str(resource())
+                text = str(resource())
+                if params is None:
+                    return text
+
+                return types.ReadResourceResult(
+                    contents=[
+                        types.TextResourceContents(
+                            uri=uri_str,
+                            mimeType="text/markdown",
+                            text=text,
+                        )
+                    ]
+                )
 
         raise ValueError(
             f"Unknown resource: {uri_str}"
@@ -672,27 +692,20 @@ class MarketLoopMCPServer:
     async def _list_prompts(
         self,
         *_args: Any,
-    ) -> list[types.Prompt]:
-        return [
-            types.Prompt(
-                name=name,
-                description=(
-                    prompt.__doc__
-                    or ""
-                ),
-                arguments=[
-                    types.PromptArgument(
-                        **argument
-                    )
-                    for argument in getattr(
-                        prompt,
-                        "arguments",
-                        [],
-                    )
-                ],
-            )
-            for name, prompt in self._prompts
-        ]
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(
+            prompts=[
+                types.Prompt(
+                    name=name,
+                    description=(prompt.__doc__ or ""),
+                    arguments=[
+                        types.PromptArgument(**argument)
+                        for argument in getattr(prompt, "arguments", [])
+                    ],
+                )
+                for name, prompt in self._prompts
+            ]
+        )
 
     async def _get_prompt(
         self,

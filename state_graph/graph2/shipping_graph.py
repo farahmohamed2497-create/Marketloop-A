@@ -12,6 +12,7 @@ from state_graph.hitl.policy import shipping_requires_human_intervention
 from state_graph.checkpointing.store import CheckpointStore
 from state_graph.tickets.service import FailureTicketService
 from .tools import check_tracking, escalate_to_hitl, open_carrier_claim
+from .decomposition import ShippingTaskDecomposer
 
 
 SHIPPING_TOOLS = {
@@ -42,6 +43,7 @@ class ShippingGraph:
             failure_ticket_service: FailureTicketService | None = None,
     ) -> None:
         self.llm = llm
+        self.decomposer = ShippingTaskDecomposer(llm)
         self.hitl = HITLNode()
 
         self.checkpoints = checkpoint_store or CheckpointStore()
@@ -125,21 +127,7 @@ class ShippingGraph:
         constrained-ReAct node a clear, ordered set of steps instead
         of the customer's raw free text.
         """
-        prompt = (
-            "Break the following shipping issue into a short ordered "
-            "list of concrete subtasks an agent could act on, using "
-            "only tracking checks and carrier claims. "
-            "Return one subtask per line, no numbering.\n\n"
-            f"Issue: {state.goal}"
-        )
-
-        response = self.llm.invoke(prompt)
-
-        subtasks = [
-            line.strip("- ").strip()
-            for line in response.content.splitlines()
-            if line.strip()
-        ]
+        subtasks = self.decomposer.decompose(state.goal)
 
         return self._checkpoint_transition(
             state,

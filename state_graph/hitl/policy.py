@@ -84,3 +84,29 @@ def inventory_requires_human_intervention(
         or (quantity_variance is not None and abs(quantity_variance) >= variance_threshold)
         or policy_violation
     )
+
+def dispute_requires_compliance_review(
+    *,
+    confidence: float | None = None,
+    retention_offer_value: float | None = None,
+    legal_threat: bool = False,
+    policy_violation: bool = False,
+    confidence_threshold: float = 0.70,
+    offer_value_threshold: float = 500.0,
+) -> bool:
+    """Require a compliance admin before a retention offer is finalized.
+
+    HITL is required when:
+    - the constrained-ReAct confidence is below the configured threshold,
+    - the proposed retention offer exceeds the configured approval limit,
+    - the customer has raised an explicit legal / chargeback threat, or
+    - the proposed action contradicts stated policy (e.g. offering a
+      refund on an already-rejected, non-defective return).
+    """
+
+    return (
+        (confidence is not None and confidence < confidence_threshold)
+        or (retention_offer_value is not None and retention_offer_value > offer_value_threshold)
+        or legal_threat
+        or policy_violation
+    )

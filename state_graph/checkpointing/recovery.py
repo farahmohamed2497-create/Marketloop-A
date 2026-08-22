@@ -5,7 +5,7 @@ from state_graph.core.models import GraphState
 
 from state_graph.checkpointing.store import CheckpointStore
 from state_graph.failure_tickets.service import FailureTicketService
-
+from state_graph.tickets.service import FailureTicketService
 
 def recover_run(
     run_id: str,

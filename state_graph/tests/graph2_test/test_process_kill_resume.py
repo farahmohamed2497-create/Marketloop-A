@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import sqlite3
 import subprocess
 import sys
 
 from state_graph.checkpointing.store import CheckpointStore
+import sqlite3
 
 
 def test_process_kill_mid_run_then_restart_and_recover(tmp_path):
@@ -19,22 +19,15 @@ from state_graph.checkpointing.store import CheckpointStore
 
 db_path = r"{db_path}"
 
-store = CheckpointStore(
-    connection_factory=lambda: sqlite3.connect(db_path)
-)
+store = CheckpointStore(connection_factory=lambda: sqlite3.connect(db_path))
 
 state = GraphState(
     run_id="process-kill-run",
-    graph_name="shipping",
-    current_node="constrained_react",
-    goal="Package is missing",
+    graph_name="dispute",
+    current_node="dispute_react",
+    goal="Customer threatens a chargeback on return #42",
     transition_count=2,
-    data={{
-        "subtasks": [
-            "check tracking",
-            "investigate carrier",
-        ]
-    }},
+    data={{"retention_strategy": {{"strategy": "offer partial refund"}}}},
 )
 
 store.save(state)
@@ -53,24 +46,16 @@ while True:
     )
 
     assert process.stdout is not None
-
     line = process.stdout.readline()
-
     assert "CHECKPOINT_SAVED" in line
 
     process.kill()
     process.wait()
 
-    store = CheckpointStore(
-        connection_factory=lambda: sqlite3.connect(str(db_path))
-    )
-
+    store = CheckpointStore(connection_factory=lambda: sqlite3.connect(str(db_path)))
     recovered = store.load_latest("process-kill-run")
 
     assert recovered is not None
-    assert recovered.current_node == "constrained_react"
+    assert recovered.current_node == "dispute_react"
     assert recovered.transition_count == 2
-    assert recovered.data["subtasks"] == [
-        "check tracking",
-        "investigate carrier",
-    ]
+    assert recovered.data["retention_strategy"]["strategy"] == "offer partial refund"

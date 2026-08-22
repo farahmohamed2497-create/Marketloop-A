@@ -1,4 +1,4 @@
-from RAG.hybrid_search import HybridSearch
+from rag.hybrid_search import HybridSearch
 
 
 def test_hybrid_returns_results():

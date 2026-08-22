@@ -23,7 +23,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
-from RAG.metadata_index import MetadataIndex
+from rag.metadata_index import MetadataIndex
 
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")

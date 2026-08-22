@@ -1,16 +1,26 @@
-"""Tools for the escalated return-dispute graph (Graph 3).
+"""Tools for the Retention graph (Graph 3).
 
-`sync_dispute_resolution` performs two separate, non-transactional writes
-against the same MarketLoop database: it updates Return_Requests, then
-appends an Audit_Log entry. They are deliberately NOT wrapped in one SQL
-transaction, because in production the audit trail is written by a
-different internal write path than the return-status update. If the first
-write succeeds and the second fails, blindly retrying the whole call would
-re-apply the Return_Requests update (or produce a duplicate Audit_Log row)
-instead of fixing the inconsistency -- which is exactly why this failure
-needs a ticket, not an automatic retry.
+Three tools only, matching the problem-table entry exactly:
+send_retention_offer, escalate_to_legal, apply_discount_code. The
+Constrained ReAct node is given ONLY this dict — it cannot call anything
+else, which is the whole point of "constrained" (it can't invent a
+fourth action outside its delegated authority).
+
+ASSUMPTION FLAGGED: schema below assumes a `Subscriptions` table
+(subscription_id, customer_id, status, monthly_value, discount_pct) next
+to the `Audit_Log` table already used by graph3's dispute tools. Adjust
+column names to match the real MarketLoop schema before this ships —
+that's the one thing I couldn't verify without DB access.
+
+`apply_discount_code` is the only tool that actually mutates state (the
+other two only propose / signal). Like `sync_dispute_resolution`, its two
+writes (Subscriptions, then Audit_Log) are deliberately NOT one
+transaction, for the same reason: they're two different write paths in
+the real system, so a bare retry after a partial failure would either
+re-apply the discount or double the audit entry — hence a ticket, not a
+retry, on failure (handled generically by StateGraphEngine.step, not by
+this graph's code).
 """
-
 from __future__ import annotations
 
 from typing import Any
@@ -18,96 +28,82 @@ from typing import Any
 from mcp_server.db import get_connection
 
 
-class DisputeSyncError(ConnectionError):
-    """Raised when the Audit_Log write for a dispute resolution fails.
+class DiscountApplyError(ConnectionError):
+    """Raised when the Audit_Log write for a discount application fails.
 
-    Subclasses ConnectionError so StateGraphEngine.step's failure
-    classifier (`classify_failure`) files it under `tool_error` rather
-    than `unplanned_error`.
+    Subclasses ConnectionError so classify_failure() in
+    state_graph.core.exceptions files it under `tool_error`, not
+    `unplanned_error` — same convention graph3's dispute tools use.
     """
 
 
-def check_return_dispute(*, return_id: int) -> dict[str, Any]:
-    """Read the current Return_Requests + Orders context for a dispute."""
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT r.return_id, r.reason, r.status, r.request_date,
-                   o.order_id, o.total_amount, c.name AS customer_name
-            FROM Return_Requests AS r
-            JOIN Orders AS o ON r.order_id = o.order_id
-            JOIN Customers AS c ON r.customer_id = c.customer_id
-            WHERE r.return_id = ?
-            """,
-            (return_id,),
-        ).fetchone()
+def send_retention_offer(*, subscription_id: int, offer_type: str, offer_value: float) -> dict[str, Any]:
+    """STUB. Propose a retention offer to the customer without applying it.
 
-    if row is None:
-        return {"return_id": return_id, "found": False}
-
-    return {
-        "return_id": row["return_id"],
-        "found": True,
-        "status": row["status"],
-        "reason": row["reason"],
-        "order_total": row["total_amount"],
-        "customer_name": row["customer_name"],
-    }
-
-
-def propose_retention_offer(*, return_id: int, offer_type: str, offer_value: float) -> dict[str, Any]:
-    """STUB. Propose a retention offer without applying it.
-
-    Replace the body with a real call to the discount/refund-adjustment
-    service. The agent may only *propose* an offer here -- applying it
-    happens exclusively through `sync_dispute_resolution`, after either
-    the customer accepts or compliance approves.
+    Applying anything only ever happens through `apply_discount_code`,
+    and only after the customer accepts (awaiting_customer_response) or
+    an admin approves via HITL. This tool just records the proposal so
+    the customer-facing side (email/SMS/in-app) can send it — replace
+    the body with that real call.
     """
     return {
-        "return_id": return_id,
+        "subscription_id": subscription_id,
         "offer_type": offer_type,
         "offer_value": offer_value,
         "proposed": True,
     }
 
 
-def sync_dispute_resolution(
+def escalate_to_legal(*, reason: str) -> dict[str, Any]:
+    """STUB tool the agent calls to signal a legal/compliance threat.
+
+    Mirrors graph3's `escalate_to_hitl` convention: it only records the
+    request inside the ReAct transcript. The actual pause + persistence
+    happens in `RetentionGraph.retention_react` once the ReAct loop
+    returns with `escalated=True` — this function must never itself talk
+    to the HITL store, or the graph loses its single point of control
+    over when a pause is durable.
+    """
+    return {"escalation_requested": True, "reason": reason}
+
+
+def apply_discount_code(
     *,
-    return_id: int,
-    decision: str,
+    subscription_id: int,
+    discount_pct: float,
     resolution_note: str,
     simulate_audit_failure: bool = False,
 ) -> dict[str, Any]:
-    """Apply a dispute's final decision to Return_Requests, then Audit_Log.
+    """Apply an approved discount to Subscriptions, then log it.
 
     `simulate_audit_failure` exists only so tests can deterministically
-    trigger the Audit_Log write failing after the Return_Requests write
-    already committed, without needing to monkeypatch the database layer.
+    trigger the Audit_Log write failing after the Subscriptions write
+    already committed — same pattern as `sync_dispute_resolution`.
     """
-    if decision not in {"Approved", "Rejected"}:
-        raise ValueError(f"Unsupported dispute decision: {decision!r}")
+    if not 0.0 < discount_pct <= 1.0:
+        raise ValueError(f"discount_pct must be in (0, 1], got {discount_pct!r}")
 
     with get_connection() as connection:
         connection.execute(
-            "UPDATE Return_Requests SET status = ? WHERE return_id = ?",
-            (decision, return_id),
+            "UPDATE Subscriptions SET status = 'retained', discount_pct = ? WHERE subscription_id = ?",
+            (discount_pct, subscription_id),
         )
         connection.commit()
 
     if simulate_audit_failure:
-        raise DisputeSyncError(
-            f"Audit_Log write failed after Return_Requests {return_id} "
-            f"was already set to {decision!r}."
+        raise DiscountApplyError(
+            f"Audit_Log write failed after Subscriptions {subscription_id} "
+            f"already set to discount_pct={discount_pct!r}."
         )
 
     with get_connection() as connection:
         connection.execute(
             """
             INSERT INTO Audit_Log (action, table_name, record_id, details, user_id)
-            VALUES ('dispute_resolution', 'Return_Requests', ?, ?, 1)
+            VALUES ('discount_applied', 'Subscriptions', ?, ?, 1)
             """,
-            (return_id, resolution_note),
+            (subscription_id, resolution_note),
         )
         connection.commit()
 
-    return {"return_id": return_id, "decision": decision, "synced": True}
+    return {"subscription_id": subscription_id, "discount_pct": discount_pct, "synced": True}

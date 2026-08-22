@@ -57,8 +57,8 @@ from mcp_server.memory.scratchpad import Scratchpad
 from mcp_server.memory.promote_drop_router import PromoteDropRouter
 from mcp_server.memory.semantic_memory import SemanticMemory
 from mcp_server.memory.consolidation import ConsolidationLayer
-from RAG.rag_pipeline import answer_with_hybrid, answer_with_agentic
-from RAG.self_rag_verification import check_memory_recall
+from rag.rag_pipeline import answer_with_hybrid, answer_with_agentic
+from rag.self_rag_verification import check_memory_recall
 
 
 # ---------------------------------------------------------------------------

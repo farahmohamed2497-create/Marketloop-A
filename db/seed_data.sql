@@ -28,6 +28,17 @@ INSERT INTO Customers (name,email,phone,address) VALUES
 ('Nour Hany','nour@gmail.com','01044444444','Mansoura'),
 ('Salma Tarek','salma@gmail.com','01055555555','Tanta');
 
+
+-- =========================
+-- Subscriptions
+-- =========================
+INSERT INTO Subscriptions
+(customer_id, status, monthly_value, discount_pct)
+VALUES
+(1, 'active', 500.00, 0.0),
+(2, 'active', 750.00, 0.0),
+(3, 'active', 300.00, 0.0);
+
 -- =========================
 -- Categories
 -- =========================

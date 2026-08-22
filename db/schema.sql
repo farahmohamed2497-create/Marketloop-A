@@ -29,6 +29,18 @@ CREATE TABLE Customers (
     address TEXT
 );
 
+
+-- =========================
+-- Subscriptions
+-- =========================
+CREATE TABLE Subscriptions (
+    subscription_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    monthly_value DECIMAL(10,2) NOT NULL,
+    discount_pct DECIMAL(5,4) NOT NULL DEFAULT 0.0,
+    FOREIGN KEY (customer_id) REFERENCES Customers(customer_id)
+);
 -- =========================
 -- Categories
 -- =========================

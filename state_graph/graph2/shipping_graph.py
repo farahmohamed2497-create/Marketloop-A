@@ -350,7 +350,15 @@ class ShippingGraph:
         unplanned execution failures.
         """
 
-        if not result.success:
+        escalation_requested = any(
+            call.tool_name == "escalate_to_hitl"
+            for call in result.tool_calls
+        )
+
+        # A constrained ReAct run deliberately stops with success=False
+        # after choosing the whitelisted escalation tool. That is an
+        # expected HITL branch, not an unplanned tool failure.
+        if not result.success and not escalation_requested:
             raise RuntimeError(
                 "Constrained ReAct failed to produce a successful result."
             )

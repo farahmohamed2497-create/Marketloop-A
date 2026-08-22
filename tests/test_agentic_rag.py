@@ -4,8 +4,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from mcp_server.tools.knowledge_store import KeywordStore
-from rag.chunking import chunk_document
-from rag.agentic_rag import AgenticRAGRetriever
+from RAG.chunking import chunk_document
+from RAG.agentic_rag import AgenticRAGRetriever
 
 
 CATALOG_PATH = Path(__file__).resolve().parents[1] / "Complete Enterprise Product Catalog.txt"

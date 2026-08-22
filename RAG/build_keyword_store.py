@@ -1,5 +1,5 @@
 from pathlib import Path
-from rag.chunking import chunk_document
+from RAG.chunking import chunk_document
 from mcp_server.tools.knowledge_store import KeywordStore
 import pickle
 import os

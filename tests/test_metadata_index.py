@@ -1,4 +1,4 @@
-from rag.metadata_index import MetadataIndex
+from RAG.metadata_index import MetadataIndex
 
 
 def test_single_filter():

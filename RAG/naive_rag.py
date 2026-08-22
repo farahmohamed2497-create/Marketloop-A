@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from rag.embedding import EmbeddingModel
+from RAG.embedding import EmbeddingModel
 
 if TYPE_CHECKING:
-    from rag.vector_store import VectorStore
+    from RAG.vector_store import VectorStore
 
 
 class NaiveRAGRetriever:

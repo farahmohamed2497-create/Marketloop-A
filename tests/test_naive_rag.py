@@ -1,4 +1,4 @@
-from rag.naive_rag import NaiveRAGRetriever
+from RAG.naive_rag import NaiveRAGRetriever
 
 
 class FakeEmbedder:

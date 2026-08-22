@@ -43,6 +43,17 @@ LLM additions:
 The graph waits for an external carrier response and can return to
 the waiting state after an approved retry.
 
+### Why Graph 2 needs a cycle
+
+A delivery investigation cannot safely run as a straight line: after the
+agent opens a carrier claim, the carrier may respond hours or days later with
+new tracking evidence. Graph 2 therefore transitions from
+`constrained_react` to `awaiting_carrier` when it needs that evidence. Once a
+carrier response is attached to the persisted state, the graph loops back to
+`constrained_react`, which can make a decision from the new evidence without
+repeating the original task decomposition. The explicit states and allowed
+edges are defined in `state_graph/graph2/design.py`.
+
 ---
 
 ## Graph 3 - Inventory Discrepancy Recovery

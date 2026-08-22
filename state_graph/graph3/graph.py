@@ -1,61 +1,34 @@
 from __future__ import annotations
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
 from state_graph.core.engine import StateGraphEngine
+from state_graph.core.models import GraphState
 from state_graph.core.transitions import TransitionTable
 
-from .recovery_graph import RecoveryGraph
+from .inventory_graph import InventoryGraph
 
 
 def build_graph3(
-    base_engine: StateGraphEngine,
+    *,
+    llm: BaseChatModel,
 ) -> StateGraphEngine:
-    graph = RecoveryGraph(
-        engine=base_engine,
-    )
+    graph = InventoryGraph(llm=llm)
 
     transitions = TransitionTable()
 
     transitions.add(
-        "execute",
-        "checkpoint",
+        "awaiting_input",
+        "inventory_react",
     )
 
-    transitions.add(
-        "checkpoint",
-        "execute",
-    )
-
-    transitions.add(
-        "execute",
-        "classify_failure",
-    )
-
-    transitions.add(
-        "classify_failure",
-        "done",
-    )
-
-    transitions.add(
-        "classify_failure",
-        "ticket",
-    )
-
-    transitions.add(
-        "ticket",
-        "waiting",
-    )
-
-    transitions.add(
-        "waiting",
-        "resume",
-    )
-
-    transitions.add(
-        "resume",
-        "execute",
-    )
+    transitions.add("inventory_react", "done")
 
     return StateGraphEngine(
         transitions=transitions,
         nodes=graph.nodes(),
     )
+
+
+def create_initial_state(run_id: str, goal: str) -> GraphState:
+    return GraphState(run_id=run_id, graph_name="inventory", current_node="awaiting_input", goal=goal)

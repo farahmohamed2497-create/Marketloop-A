@@ -67,3 +67,20 @@ def shipping_requires_human_intervention(
         return True
 
     return False
+
+
+def inventory_requires_human_intervention(
+    *,
+    confidence: float | None = None,
+    quantity_variance: int | None = None,
+    policy_violation: bool = False,
+    confidence_threshold: float = 0.70,
+    variance_threshold: int = 10,
+) -> bool:
+    """Require an admin before an inventory discrepancy changes stock."""
+
+    return (
+        (confidence is not None and confidence < confidence_threshold)
+        or (quantity_variance is not None and abs(quantity_variance) >= variance_threshold)
+        or policy_violation
+    )

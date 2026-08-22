@@ -27,12 +27,8 @@ def create_graph2(
     )
 
 
-def create_graph3(
-    base_engine,
-):
-    return build_graph3(
-        base_engine,
-    )
+def create_graph3(llm):
+    return build_graph3(llm=llm)
 
 
 def create_state(

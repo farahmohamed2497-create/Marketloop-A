@@ -69,6 +69,19 @@ LLM additions:
 The workflow requires warehouse confirmation and human approval before
 changing the system-of-record inventory quantity.
 
+### Graph 3 HITL policy and resume flow
+
+The constrained ReAct node can verify a warehouse count and propose an
+adjustment, but it is not allowed to apply the change. `InventoryGraph` pauses
+and queues an admin task whenever its confidence is below 0.70, the absolute
+quantity variance is at least 10 units, policy data conflicts, or the agent
+explicitly requests escalation. The paused state is stored with the HITL
+request and in `Admin_Task_Queue` for the platform admin surface.
+
+After an administrator records `approve` or `reject`, the standard graph
+resume path reloads the checkpoint. Graph 3 reads that decision and completes
+the run without re-running the constrained ReAct node.
+
 ---
 
 ## Checkpointing

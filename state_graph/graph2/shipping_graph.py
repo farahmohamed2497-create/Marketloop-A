@@ -171,6 +171,17 @@ class ShippingGraph:
 
         return self._run_react_and_maybe_pause(state)
 
+    def awaiting_carrier(self, state: GraphState) -> TransitionResult:
+        """Pause until the external carrier supplies the requested evidence."""
+
+        if not state.data.get("carrier_response"):
+            return TransitionResult(
+                next_node="awaiting_carrier",
+                status="waiting",
+            )
+
+        return TransitionResult(next_node="constrained_react")
+
     def _run_react_and_maybe_pause(self, state: GraphState) -> TransitionResult:
         subtasks = state.data.get("subtasks", [])
         task = state.goal + "\n\nSubtasks:\n" + "\n".join(subtasks)
@@ -224,11 +235,17 @@ class ShippingGraph:
                 policy_violation=policy_violation,
             )
 
+        next_node = (
+            "awaiting_carrier"
+            if state.data.get("carrier_response_required")
+            else "done"
+        )
+
         return self._checkpoint_transition(
             state,
             TransitionResult(
-                next_node="done",
-                status="done",
+                next_node=next_node,
+                status="waiting" if next_node == "awaiting_carrier" else "done",
                 updates={
                     "data": updated_data,
                     "outputs": {
@@ -518,4 +535,5 @@ class ShippingGraph:
             "awaiting_input": self.awaiting_input,
             "decompose": self.decompose,
             "constrained_react": self.constrained_react_node,
+            "awaiting_carrier": self.awaiting_carrier,
         }

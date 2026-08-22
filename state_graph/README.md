@@ -56,32 +56,40 @@ edges are defined in `state_graph/graph2/design.py`.
 
 ---
 
-## Graph 3 - Inventory Discrepancy Recovery
+## Graph 3 - Escalated Return Dispute (Legal / Chargeback Threat)
 
-Handles inventory discrepancies between system records and warehouse
-counts.
+Handles a Return_Requests case that has already been decided but the
+customer is escalating -- threatening a bank chargeback or legal action.
+This is a different scope from Graph 1 (Return / Refund Resolution): Graph 1
+evaluates a fresh return; Graph 3 only runs once a return is already
+closed and the customer refuses to accept the outcome.
 
 LLM additions:
 
-1. RAG / Inventory Policy Grounding
-2. Constrained ReAct
+1. Tree of Thoughts (choose which retention argument to lead with)
+2. Constrained ReAct (execute only whitelisted dispute-handling tools)
 
-The workflow requires warehouse confirmation and human approval before
-changing the system-of-record inventory quantity.
+The graph waits for the customer's response to a retention offer (a real
+external wait, `awaiting_customer_response`) and can pause separately for
+compliance review when the customer raises a legal threat, the confidence
+is low, or the offer exceeds the configured limit.
 
-### Graph 3 HITL policy and resume flow
+### Graph 3: tickets versus HITL
 
-The constrained ReAct node can verify a warehouse count and propose an
-adjustment, but it is not allowed to apply the change. `InventoryGraph` pauses
-and queues an admin task whenever its confidence is below 0.70, the absolute
-quantity variance is at least 10 units, policy data conflicts, or the agent
-explicitly requests escalation. The paused state is stored with the HITL
-request and in `Admin_Task_Queue` for the platform admin surface.
-
-After an administrator records `approve` or `reject`, the standard graph
-resume path reloads the checkpoint. Graph 3 reads that decision and completes
-the run without re-running the constrained ReAct node.
-
+- **HITL** (`dispute_requires_compliance_review`): an *expected* business
+  decision -- the customer threatened legal action, or the proposed offer
+  needs a human's sign-off. The run is checkpointed with
+  `status="waiting"` and `waiting_request_id`; it resumes once an admin
+  records `approve`/`reject` through the platform.
+- **Failure ticket**: an *unplanned* error -- `sync_dispute_resolution`
+  updates `Return_Requests` and then `Audit_Log` in two separate writes.
+  If the second write fails after the first already committed
+  (`DisputeSyncError`), the run is checkpointed with `status="failed"`
+  and a ticket is opened. A blind retry would either re-apply the
+  `Return_Requests` update or create a duplicate `Audit_Log` row, so the
+  run only resumes once an admin confirms the ticket is resolved
+  (`FailureTicketService.resolve_ticket`) and `StateGraphEngine.resume()`
+  reloads the checkpoint and finishes only the unfinished node.
 ---
 
 ## Checkpointing

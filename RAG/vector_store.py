@@ -131,6 +131,48 @@ class VectorStore:
             )
         return results
 
+    def remove_by_metadata(self, filters: dict[str, Any]) -> list[str]:
+        """Remove every vector whose metadata matches ``filters`` (e.g.
+        {"document_id": "..."}). Uses hnswlib's soft-delete (mark_deleted)
+        so the ANN graph structure stays valid, drops the item from the
+        metadata store/index so it can never again be returned by
+        search() or reappear after save()/load(), AND removes it from
+        _id_map/_reverse_id_map so `self.size` (used by search() to size
+        its ANN query when there's no metadata filter) reflects only
+        live elements. Without that last part, deleting the only
+        document left in an otherwise-empty store made search() ask
+        hnswlib for k=1 result out of a 0-live-element graph, which
+        hnswlib can't satisfy ("Cannot return the results in a
+        contigious 2D array").
+
+        Returns the list of removed item_ids.
+        """
+        matching_ids = self.metadata_index.filter_ids(filters)
+        if not matching_ids:
+            return []
+
+        removed: list[str] = []
+        for item_id in list(matching_ids):
+            int_id = self._reverse_id_map.pop(item_id, None)
+            if int_id is not None:
+                self._id_map.pop(int_id, None)
+                try:
+                    self.index.mark_deleted(int_id)
+                except RuntimeError:
+                    # Already marked deleted - safe to ignore.
+                    pass
+
+            payload = self.metadata_store.data.pop(item_id, None)
+            if payload is not None:
+                for field, value in payload["metadata"].items():
+                    bucket = self.metadata_index._index.get(field, {}).get(value)
+                    if bucket is not None:
+                        bucket.discard(item_id)
+
+            removed.append(item_id)
+
+        return removed
+
     def save(self, path: str) -> None:
         os.makedirs(path, exist_ok=True)
         self.index.save_index(os.path.join(path, "hnsw_index.bin"))

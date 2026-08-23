@@ -882,6 +882,31 @@ class MarketLoopMCPServer:
                 self._server.create_initialization_options(),
             )
 
+    async def _run_streamable_http(self) -> None:
+        import uvicorn
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+        session_manager = StreamableHTTPSessionManager(app=self._server)
+
+        async def asgi_app(scope, receive, send):
+            if scope["type"] == "lifespan":
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                return
+
+            await session_manager.handle_request(scope, receive, send)
+
+        host = "0.0.0.0"
+        port = int(os.getenv("MARKETLOOP_HTTP_PORT", "8000"))
+
+        async with session_manager.run():
+            config = uvicorn.Config(asgi_app, host=host, port=port, log_level="info")
+            uv_server = uvicorn.Server(config)
+            print(f"MarketLoop MCP server listening on http://{host}:{port}/  (streamable-http)")
+            await uv_server.serve()
     def run(self) -> None:
         """Run the server using stdio by default."""
 
@@ -893,12 +918,13 @@ class MarketLoopMCPServer:
             )
             return
 
-        if self.transport in {
-            "streamable-http",
-            "sse",
-        }:
+        if self.transport == "streamable-http":
+            asyncio.run(self._run_streamable_http())
+            return
+
+        if self.transport == "sse":
             raise NotImplementedError(
-                "Remote transport adapters are not implemented yet"
+                "SSE transport is not implemented; use streamable-http instead"
             )
 
 

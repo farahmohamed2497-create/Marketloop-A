@@ -74,6 +74,20 @@ external wait, `awaiting_customer_response`) and can pause separately for
 compliance review when the customer raises a legal threat, the confidence
 is low, or the offer exceeds the configured limit.
 
+### Graph 3 HITL trigger and resume flow
+
+`dispute_requires_compliance_review` pauses the workflow when any of these
+conditions is true: the ReAct confidence is below **0.70**, the proposed
+offer is above **500**, the customer makes a legal/chargeback threat, or the
+proposal violates policy. The pause writes the complete state to the HITL
+request and checkpoint, then enqueues the same snapshot in
+`Admin_Task_Queue` for the platform.
+
+The admin records `approve` or `reject` against that request. Calling
+`StateGraphEngine.resume(run_id)` reloads the checkpoint and returns to
+`dispute_react`, which reads that decision and performs the single final
+resolution write; it does not run the LLM again.
+
 ### Graph 3: tickets versus HITL
 
 - **HITL** (`dispute_requires_compliance_review`): an *expected* business

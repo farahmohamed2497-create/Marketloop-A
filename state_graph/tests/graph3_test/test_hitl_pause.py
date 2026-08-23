@@ -184,6 +184,8 @@ def test_legal_threat_pauses_and_persists_full_state_even_when_react_succeeds() 
 
     assert len(graph.task_queue.enqueued) == 1
     assert graph.task_queue.enqueued[0]["run_id"] == "run-1"
+    assert graph.task_queue.enqueued[0]["state"]["status"] == "waiting"
+    assert graph.task_queue.enqueued[0]["state"]["data"]["react"]["confidence"] == 1.0
 
 
 def test_agent_self_escalation_also_pauses_for_compliance() -> None:

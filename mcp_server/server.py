@@ -9,7 +9,7 @@ import logging
 import pkgutil
 from types import ModuleType
 from typing import Any, Callable
-
+import os
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
@@ -19,6 +19,7 @@ from planning_lab.mcp_executor import MarketLoopMCPExecutor
 
 from .config import get_database_path, get_transport
 from .db import get_connection
+from . import agent_registry
 from .tools.session import SessionContext, switch_active_user_role
 
 
@@ -52,9 +53,11 @@ class MarketLoopMCPServer:
         self,
         name: str = "marketloop",
         version: str = "0.1.0",
-    ) -> None:
+        agent_id: str = agent_registry.DEFAULT_AGENT_ID,
+          ) -> None:
         self.name = name
         self.version = version
+        self.agent_id = agent_id
         self.transport = get_transport()
 
         self._tools: list[Callable[..., Any]] = []
@@ -119,6 +122,7 @@ class MarketLoopMCPServer:
     def connect(self) -> dict[str, Any]:
         """Prepare the server for a transport connection."""
         self.register_modules()
+        agent_registry.ensure_agent(self.agent_id, display_name=self.agent_id)
 
         connection = get_connection()
         connection.close()
@@ -286,15 +290,23 @@ class MarketLoopMCPServer:
 
             visible_tools.append(tool)
 
-        self._active_tool_names = {
-            getattr(
-                tool,
-                "name",
-                tool.__name__,
+        enabled_names = set(
+            agent_registry.filter_enabled(
+                self.agent_id,
+                [
+                    getattr(tool, "name", tool.__name__)
+                    for tool in visible_tools
+                ],
             )
-            for tool in visible_tools
-        }
+        )
 
+        visible_tools = [
+            tool
+            for tool in visible_tools
+            if getattr(tool, "name", tool.__name__) in enabled_names
+        ]
+
+        self._active_tool_names = enabled_names
         self._visible_tools = visible_tools
 
     def _build_tool(
@@ -891,5 +903,10 @@ class MarketLoopMCPServer:
 
 
 if __name__ == "__main__":
-    server = MarketLoopMCPServer()
+    server = MarketLoopMCPServer(
+        agent_id=os.getenv(
+            "MARKETLOOP_AGENT_ID",
+            agent_registry.DEFAULT_AGENT_ID,
+        ),
+    )
     server.run()

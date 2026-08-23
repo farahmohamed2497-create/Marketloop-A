@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MarketLoop Admin — Agents & Tools</title>
+<style>
+  :root {
+    --ink: #14181f;
+    --ink-soft: #5b6472;
+    --line: #e4e7ec;
+    --surface: #ffffff;
+    --canvas: #f4f5f7;
+    --accent: #2952e3;
+    --accent-soft: #eaefff;
+    --good: #1b7a43;
+    --good-soft: #e7f6ed;
+    --bad: #b3261e;
+    --bad-soft: #fdecea;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+  }
+  header {
+    background: var(--ink);
+    color: #fff;
+    padding: 1.1rem 1.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+  header h1 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.01em; }
+  header span { color: #9aa4b5; font-size: 0.85rem; }
+
+  main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem;
+  }
+  .panel h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin: 0 0 0.75rem;
+  }
+
+  /* Agent list */
+  .agent-item {
+    padding: 0.65rem 0.7rem;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 0.3rem;
+    border: 1px solid transparent;
+  }
+  .agent-item:hover { background: var(--canvas); }
+  .agent-item.active { background: var(--accent-soft); border-color: var(--accent); }
+  .agent-item .name { font-weight: 600; font-size: 0.92rem; }
+  .agent-item .meta { display: block; color: var(--ink-soft); font-size: 0.78rem; margin-top: 0.1rem; }
+
+  /* Tools panel */
+  .tools-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+  }
+  .tools-header h2 { margin: 0; text-transform: none; font-size: 1rem; color: var(--ink); letter-spacing: normal; }
+
+  .tool-group { margin-bottom: 1.1rem; }
+  .tool-group-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin-bottom: 0.4rem;
+  }
+  .tool-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 0.6rem;
+    border-radius: 8px;
+    margin-bottom: 0.25rem;
+  }
+  .tool-row.enabled { background: var(--good-soft); }
+  .tool-row.disabled { background: var(--canvas); }
+  .tool-row .tool-name { font-family: "Cascadia Code", Consolas, monospace; font-size: 0.85rem; }
+
+  button.action {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.action:hover { border-color: var(--ink-soft); }
+  button.remove { color: var(--bad); }
+  button.remove:hover { background: var(--bad-soft); border-color: var(--bad); }
+  button.add { color: var(--good); }
+  button.add:hover { background: var(--good-soft); border-color: var(--good); }
+  button.action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* States */
+  .state { padding: 1.1rem 0.5rem; color: var(--ink-soft); font-size: 0.88rem; }
+  .state.error { color: var(--bad); }
+  .state .retry {
+    display: inline-block;
+    margin-top: 0.5rem;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 0.85rem;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 0.4rem;
+    vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    background: var(--ink);
+    color: #fff;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { background: var(--bad); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MarketLoop Admin</h1>
+  <span>Agent &amp; tool management</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Agents</h2>
+    <div id="agent-list"><div class="state"><span class="spinner"></span>Loading agents…</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="tools-header">
+      <h2 id="tools-title">Select an agent</h2>
+    </div>
+    <div id="tool-list"><div class="state">Pick an agent on the left to manage its tools.</div></div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  const API_BASE = "http://localhost:8001";
+  let selectedAgentId = null;
+  let selectedAgentName = null;
+
+  function showToast(message, isError) {
+    const toast = document.getElementById("toast");
+    toast.textContent = message;
+    toast.className = "toast show" + (isError ? " error" : "");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { toast.className = "toast"; }, 3200);
+  }
+
+  async function loadAgents() {
+    const listEl = document.getElementById("agent-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading agents…</div>`;
+
+    let agents;
+    try {
+      const res = await fetch(`${API_BASE}/api/agents`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      agents = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="state error">
+          Couldn't reach the admin API. Is it running on :8001?
+          <br><span class="retry" onclick="loadAgents()">Try again</span>
+        </div>`;
+      return;
+    }
+
+    if (!agents.length) {
+      listEl.innerHTML = `<div class="state">No agents have connected yet. Start an agent process to see it here.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const agent of agents) {
+      const el = document.createElement("div");
+      el.className = "agent-item" + (agent.agent_id === selectedAgentId ? " active" : "");
+      const disabledNote = agent.disabled_tool_count
+        ? `${agent.disabled_tool_count} tool(s) removed`
+        : "all tools available";
+      el.innerHTML = `<span class="name">${agent.display_name}</span><span class="meta">${agent.agent_id} · ${disabledNote}</span>`;
+      el.onclick = () => selectAgent(agent.agent_id, agent.display_name);
+      listEl.appendChild(el);
+    }
+  }
+
+  async function selectAgent(agentId, displayName) {
+    selectedAgentId = agentId;
+    selectedAgentName = displayName;
+    document.getElementById("tools-title").textContent = `Tools — ${displayName}`;
+    highlightSelectedAgent();
+    await loadTools(agentId);
+  }
+
+  function highlightSelectedAgent() {
+    document.querySelectorAll(".agent-item").forEach((el) => {
+      el.classList.toggle("active", el.querySelector(".meta")?.textContent.startsWith(selectedAgentId));
+    });
+  }
+
+  async function loadTools(agentId) {
+    const listEl = document.getElementById("tool-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading tools…</div>`;
+
+    let tools;
+    try {
+      const res = await fetch(`${API_BASE}/api/agents/${agentId}/tools`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      tools = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="state error">
+          Couldn't load tools for this agent.
+          <br><span class="retry" onclick="loadTools('${agentId}')">Try again</span>
+        </div>`;
+      return;
+    }
+
+    if (!tools.length) {
+      listEl.innerHTML = `<div class="state">No tools are registered on the server yet.</div>`;
+      return;
+    }
+
+    const enabled = tools.filter((t) => t.enabled);
+    const disabled = tools.filter((t) => !t.enabled);
+
+    listEl.innerHTML = "";
+
+    listEl.appendChild(renderGroup(
+      `Available to this agent (${enabled.length})`,
+      enabled,
+      "remove",
+      "Remove",
+      false
+    ));
+
+    listEl.appendChild(renderGroup(
+      `Removed from this agent (${disabled.length})`,
+      disabled,
+      "add",
+      "Add",
+      true
+    ));
+
+    if (!enabled.length) {
+      const warn = document.createElement("div");
+      warn.className = "state error";
+      warn.textContent = "This agent currently has no tools available — it can't call anything.";
+      listEl.prepend(warn);
+    }
+  }
+
+  function renderGroup(label, tools, actionClass, actionLabel, nextEnabledState) {
+    const group = document.createElement("div");
+    group.className = "tool-group";
+
+    const heading = document.createElement("div");
+    heading.className = "tool-group-label";
+    heading.textContent = label;
+    group.appendChild(heading);
+
+    if (!tools.length) {
+      const empty = document.createElement("div");
+      empty.className = "state";
+      empty.style.padding = "0.3rem 0.6rem";
+      empty.textContent = nextEnabledState ? "Nothing removed." : "Nothing available.";
+      group.appendChild(empty);
+      return group;
+    }
+
+    for (const tool of tools) {
+      const row = document.createElement("div");
+      row.className = "tool-row " + (nextEnabledState ? "disabled" : "enabled");
+      row.innerHTML = `
+        <span class="tool-name">${tool.tool_name}</span>
+        <button class="action ${actionClass}" data-tool="${tool.tool_name}" data-enable="${nextEnabledState}">
+          ${actionLabel}
+        </button>
+      `;
+      row.querySelector("button").addEventListener("click", onToolAction);
+      group.appendChild(row);
+    }
+    return group;
+  }
+
+  async function onToolAction(event) {
+    const btn = event.currentTarget;
+    const toolName = btn.dataset.tool;
+    const enable = btn.dataset.enable === "true";
+
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = "…";
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/agents/${selectedAgentId}/tools/${toolName}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: enable }),
+        }
+      );
+      if (!res.ok) throw new Error(await res.text());
+
+      showToast(`${toolName} ${enable ? "added to" : "removed from"} ${selectedAgentName}.`, false);
+      await loadTools(selectedAgentId);
+      await loadAgents();
+      highlightSelectedAgent();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      showToast(`Couldn't update ${toolName}. ${err.message}`, true);
+    }
+  }
+
+  loadAgents();
+</script>
+
+</body>
+</html>

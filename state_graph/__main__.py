@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-
+from mcp_server import agent_registry
 from state_graph.factory import (
     create_graph1,
     create_state,
@@ -10,7 +10,7 @@ from state_graph.factory import (
 
 def main() -> None:
     run_id = str(uuid.uuid4())
-
+    agent_registry.ensure_agent("state-graph-agent", display_name="state-graph-agent")
     engine = create_graph1()
 
     state = create_state(

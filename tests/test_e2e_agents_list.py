@@ -60,7 +60,7 @@ async def _connect_agent(agent_id: str) -> None:
     server_params = StdioServerParameters(
         command=sys.executable,
         args=["-u", "-m", "mcp_server.server"],
-        env={**os.environ, "PYTHONUNBUFFERED": "1", "MARKETLOOP_AGENT_ID": agent_id},
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "MARKETLOOP_TRANSPORT": "stdio", "MARKETLOOP_AGENT_ID": agent_id},
     )
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:

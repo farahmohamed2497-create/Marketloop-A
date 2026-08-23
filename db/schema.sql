@@ -158,3 +158,79 @@ CREATE TABLE Audit_Log (
     user_id INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES Users(user_id)
 );
+
+
+-- =========================
+--  RAG Documents
+-- =========================
+CREATE TABLE IF NOT EXISTS Rag_Documents (
+    document_id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    content_type TEXT,
+    content_text TEXT NOT NULL,
+    chunks_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS Rag_Document_Chunks (
+    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(document_id, chunk_index),
+    FOREIGN KEY (document_id)
+        REFERENCES Rag_Documents(document_id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_document
+ON Rag_Document_Chunks(document_id, chunk_index);
+
+CREATE TABLE IF NOT EXISTS Rag_Store_Meta (
+    meta_key TEXT PRIMARY KEY,
+    meta_value TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO Rag_Store_Meta(meta_key, meta_value)
+VALUES ('version', '0');
+
+
+-- =========================
+-- HITL
+-- =========================
+CREATE TABLE IF NOT EXISTS HITL_Requests (
+    request_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    graph_name TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL,
+    decision TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP
+);
+
+
+-- =========================
+--  Failure Tickets
+-- =========================
+CREATE TABLE IF NOT EXISTS Failure_Tickets (
+    ticket_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    graph_name TEXT NOT NULL,
+    node_name TEXT NOT NULL,
+    error TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    state_json TEXT,
+    resolution TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_failure_tickets_run
+ON Failure_Tickets(run_id);
+
+CREATE INDEX IF NOT EXISTS idx_failure_tickets_status
+ON Failure_Tickets(status);

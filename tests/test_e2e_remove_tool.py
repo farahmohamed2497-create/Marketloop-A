@@ -1,9 +1,7 @@
 """E2E test for F1: admin REMOVES a tool -> agent can no longer CALL it live.
 
-The mirror image of test_e2e_add_tool: starts with the tool enabled and
-working, then proves that after an admin removes it, the same running
-agent session is rejected when it tries to call that tool -- not just
-that it disappears from list_tools.
+See test_e2e_add_tool.py's docstring: a rejected call returns a normal
+CallToolResult with isError=True, it does not raise a Python exception.
 
 Run from the repo root:
     py -m tests.test_e2e_remove_tool
@@ -34,118 +32,49 @@ def _cleanup() -> None:
     conn.close()
 
 
+def _content_text(result) -> str:
+    return "".join(getattr(block, "text", "") for block in result.content)
+
+
 async def run() -> None:
-    print(
-        f"--- E2E: admin REMOVES '{TARGET_TOOL}' "
-        f"-> '{AGENT_ID}' can no longer call it live ---"
+    print(f"--- E2E: admin REMOVES '{TARGET_TOOL}' -> '{AGENT_ID}' can no longer call it ---")
+
+    agent_registry.ensure_agent(AGENT_ID, display_name=AGENT_ID)
+    # Start in the AVAILABLE state.
+    agent_registry.set_tool_enabled(AGENT_ID, TARGET_TOOL, enabled=True)
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-u", "-m", "mcp_server.server"],
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "MARKETLOOP_AGENT_ID": AGENT_ID},
     )
 
-    try:
-        agent_registry.ensure_agent(
-            AGENT_ID,
-            display_name=AGENT_ID,
-        )
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
 
-        # Start with the tool explicitly enabled.
-        agent_registry.set_tool_enabled(
-            AGENT_ID,
-            TARGET_TOOL,
-            enabled=True,
-        )
+            before = await session.call_tool(TARGET_TOOL, {})
+            assert not before.isError, (
+                f"FAIL: expected the tool to work before removal. "
+                f"Got isError={before.isError}, content={_content_text(before)!r}"
+            )
+            print(f"  [1/2] Before removing: call succeeded -> OK  ({_content_text(before)!r})")
 
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-u", "-m", "mcp_server.server"],
-            env={
-                **os.environ,
-                "PYTHONUNBUFFERED": "1",
-                "MARKETLOOP_AGENT_ID": AGENT_ID,
-            },
-        )
+            # This is exactly what admin_api/main.py's PUT endpoint does when
+            # an admin clicks "Remove" in the dashboard.
+            agent_registry.set_tool_enabled(AGENT_ID, TARGET_TOOL, enabled=False)
 
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
+            after = await session.call_tool(TARGET_TOOL, {})
+            assert after.isError, (
+                f"FAIL: '{TARGET_TOOL}' should be rejected after being removed, "
+                f"on the SAME running session, with no restart. "
+                f"Got isError={after.isError}, content={_content_text(after)!r}"
+            )
+            print(f"  [2/2] After removing (same session, no restart): rejected -> OK  ({_content_text(after)!r})")
 
-                # -----------------------------------------------------
-                # 1. Tool works before removal.
-                # -----------------------------------------------------
-                result = await session.call_tool(
-                    TARGET_TOOL,
-                    {},
-                )
+    print("\nPASSED: admin 'remove tool' action stops a live agent from calling it.")
+    _cleanup()
 
-                if getattr(result, "isError", False):
-                    text = "".join(
-                        getattr(block, "text", "")
-                        for block in result.content
-                    )
-                    raise AssertionError(
-                        f"FAIL: '{TARGET_TOOL}' should work before removal, "
-                        f"but server returned an error: {text!r}"
-                    )
-
-                text = "".join(
-                    getattr(block, "text", "")
-                    for block in result.content
-                )
-
-                print(
-                    "  [1/2] Before removing: "
-                    f"tool call succeeded -> OK ({text!r})"
-                )
-
-                # -----------------------------------------------------
-                # 2. Simulate the exact admin action.
-                # -----------------------------------------------------
-                agent_registry.set_tool_enabled(
-                    AGENT_ID,
-                    TARGET_TOOL,
-                    enabled=False,
-                )
-
-                # -----------------------------------------------------
-                # 3. Same MCP session, no restart.
-                # -----------------------------------------------------
-                result_after_removal = await session.call_tool(
-                    TARGET_TOOL,
-                    {},
-                )
-
-                if not getattr(
-                    result_after_removal,
-                    "isError",
-                    False,
-                ):
-                    text = "".join(
-                        getattr(block, "text", "")
-                        for block in result_after_removal.content
-                    )
-
-                    raise AssertionError(
-                        f"FAIL: '{TARGET_TOOL}' is still callable "
-                        f"after removal: {text!r}"
-                    )
-
-                error_text = "".join(
-                    getattr(block, "text", "")
-                    for block in result_after_removal.content
-                )
-
-                print(
-                    "  [2/2] After removing "
-                    "(same session, no restart): "
-                    f"rejected -> OK ({error_text!r})"
-                )
-
-        print(
-            "\nPASSED: admin 'remove tool' action stops "
-            "a live agent from calling it."
-        )
-
-    finally:
-        # Always remove test data, even when an assertion fails.
-        _cleanup()
 
 if __name__ == "__main__":
     asyncio.run(run())

@@ -1,8 +1,10 @@
 """E2E test for F1: admin ADDS a tool -> agent can actually CALL it live.
 
-This goes one step further than the list_tools toggle test: it proves
-the tool is functionally callable after being added back, not just
-present in the tool list.
+Important: a disabled/unknown tool does NOT raise a Python exception on
+the client. The server returns a normal CallToolResult with
+isError=True and an explanatory text block (confirmed via
+tests/diagnose_calltool_error_shape.py). So this checks result.isError,
+not "did an exception get thrown".
 
 Run from the repo root:
     py -m tests.test_e2e_add_tool
@@ -33,6 +35,10 @@ def _cleanup() -> None:
     conn.close()
 
 
+def _content_text(result) -> str:
+    return "".join(getattr(block, "text", "") for block in result.content)
+
+
 async def run() -> None:
     print(f"--- E2E: admin ADDS '{TARGET_TOOL}' -> '{AGENT_ID}' can call it live ---")
 
@@ -50,26 +56,25 @@ async def run() -> None:
         async with ClientSession(read, write) as session:
             await session.initialize()
 
-            try:
-                await session.call_tool(TARGET_TOOL, {})
-                raise AssertionError(
-                    f"FAIL: '{TARGET_TOOL}' should NOT be callable while removed."
-                )
-            except AssertionError:
-                raise
-            except Exception as exc:
-                print(f"  [1/2] Removed tool correctly rejected: {type(exc).__name__} -> OK")
+            before = await session.call_tool(TARGET_TOOL, {})
+            assert before.isError, (
+                f"FAIL: '{TARGET_TOOL}' should be rejected while removed. "
+                f"Got isError={before.isError}, content={_content_text(before)!r}"
+            )
+            print(f"  [1/2] While removed: call rejected -> OK  ({_content_text(before)!r})")
 
             # This is exactly what admin_api/main.py's PUT endpoint does when
             # an admin clicks "Add" in the dashboard.
             agent_registry.set_tool_enabled(AGENT_ID, TARGET_TOOL, enabled=True)
 
-            result = await session.call_tool(TARGET_TOOL, {})
-            text = "".join(getattr(block, "text", "") for block in result.content)
-            assert "inventory tool" in text, (
-                f"FAIL: expected the real tool output, got: {text!r}"
+            after = await session.call_tool(TARGET_TOOL, {})
+            assert not after.isError, (
+                f"FAIL: '{TARGET_TOOL}' should succeed after being added back. "
+                f"Got isError={after.isError}, content={_content_text(after)!r}"
             )
-            print(f"  [2/2] After adding back: tool call succeeded -> OK  (result: {text!r})")
+            text = _content_text(after)
+            assert "inventory tool" in text, f"FAIL: unexpected tool output: {text!r}"
+            print(f"  [2/2] After adding back (same session, no restart): call succeeded -> OK  ({text!r})")
 
     print("\nPASSED: admin 'add tool' action makes a live agent able to call it.")
     _cleanup()

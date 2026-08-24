@@ -2,6 +2,7 @@
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; } aside { padding: 1.5rem; background: #1f2937; }
 nav { display: grid; gap: .5rem; } button, input { font: inherit; padding: .7rem; border-radius: .45rem; border: 1px solid #4b5563; }
 button { color: inherit; background: #374151; cursor: pointer; text-align: left; } button.selected, button:hover { background: #2563eb; } button:disabled { cursor: not-allowed; opacity: .5; }
+.admin-link { display:block; margin-top:1.5rem; color:#bfdbfe; }
 .chat { display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; } header, form { padding: 1rem 1.5rem; border-bottom: 1px solid #374151; } header { display:flex; justify-content:space-between; align-items:center; } form { border-top: 1px solid #374151; border-bottom:0; display:flex; gap:.75rem; } input { flex:1; background:#111827; color:inherit; }
 #messages { overflow:auto; padding:1.5rem; } .message { max-width:75%; padding:.75rem 1rem; border-radius:.7rem; } .user { margin-left:auto; background:#2563eb; } .assistant { background:#374151; }
 @media (max-width: 640px) { .shell { grid-template-columns:1fr; } aside { min-height:auto; } .chat { min-height:70vh; } }

@@ -380,7 +380,5 @@ Persistent HITL request creation.
 Full-state persistence during HITL pause.
 Automated tests for HITL triggering and pause behavior.
 
-Pending:
-
-HTML admin platform and task-queue integration.
-Final end-to-end resume demonstration through the admin UI.
+See `docs/platform_runbook.md` for the current admin/user platform startup
+commands and the required live demonstration sequence.

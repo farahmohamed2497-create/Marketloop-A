@@ -37,6 +37,10 @@ class MarketLoopMCPExecutor:
     def execute(self, tool_name: str, arguments: dict[str, object]) -> str:
         if tool_name not in self._tools:
             raise ValueError(f"Unknown MarketLoop MCP tool: {tool_name}")
+        if tool_name in MUTATING_TOOLS and not self.allow_mutations:
+            raise PermissionError(
+                f"Tool '{tool_name}' requires allow_mutations=True."
+            )
         if tool_name in agent_registry.get_disabled_tool_names(self.agent_id):
             raise PermissionError(
                 f"Tool '{tool_name}' has been disabled for agent '{self.agent_id}' by an admin."

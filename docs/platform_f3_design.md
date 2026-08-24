@@ -11,8 +11,10 @@ HITL, and ticket administration (F2) are deliberately outside this slice.
 - `GET /api/chat/sessions/{session_id}` returns the conversation history.
 
 Every agent adapter receives the same `message` string and owns its actual
-execution. The platform never invents an agent answer: missing credentials or
-an unavailable integration are returned as a clear error from that adapter.
+execution. `rag-agent` runs the existing Hybrid RAG pipeline,
+`state-graph-agent` runs Graph 1, and `planning-agent` runs the existing sales
+audit planning agent. The platform never invents an answer: missing provider
+credentials are returned as a clear error from that adapter.
 
 ## Session model
 
@@ -22,8 +24,6 @@ agent's own thread rather than mixing unrelated histories.
 
 ## Deferred dependencies
 
-F3 does not implement F1/F2 APIs. The state-graph adapter is exposed only
-when a graph-chat runner is registered; its eventual HITL/ticket visibility is
-the responsibility of F2. RAG and planning adapters call their existing
-project services and report missing provider credentials instead of returning
-mock data.
+F3 does not implement F1/F2 APIs. HITL/ticket visibility stays owned by F2;
+F3 only returns the Graph 1 run ID/status so an admin can resolve a pause from
+the existing admin surface.

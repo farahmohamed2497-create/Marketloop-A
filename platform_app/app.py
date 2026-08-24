@@ -55,6 +55,15 @@ async def get_history(request: web.Request) -> web.Response:
 
 
 def main() -> None:
+    from db.init_db import initialize_database
+    from mcp_server.config import get_database_path
+    from mcp_server.db import get_connection
+    if not get_database_path().exists():
+        initialize_database()
+    migration = Path(__file__).resolve().parent.parent / "003_agents_and_tools.sql"
+    with get_connection() as connection:
+        connection.executescript(migration.read_text(encoding="utf-8"))
+        connection.commit()
     web.run_app(create_app(), host="127.0.0.1", port=8080)
 
 

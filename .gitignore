@@ -45,3 +45,7 @@ coverage.xml
 *.log
 *.sqlite3
 artifacts/*.json
+marketloop.db
+marketloop_backup.db
+data/marketloop_vector_db/
+data/keyword_store.pkl

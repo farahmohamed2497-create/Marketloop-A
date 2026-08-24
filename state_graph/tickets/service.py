@@ -35,6 +35,7 @@ class FailureTicketService:
                     error TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'open',
                     state_json TEXT,
+                    resolution TEXT,
                     created_at TEXT NOT NULL,
                     resolved_at TEXT
                 )
@@ -48,6 +49,18 @@ class FailureTicketService:
                 ON Failure_Tickets(run_id)
                 """
             )
+
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(Failure_Tickets)"
+                ).fetchall()
+            }
+
+            if "resolution" not in columns:
+                connection.execute(
+                    "ALTER TABLE Failure_Tickets ADD COLUMN resolution TEXT"
+                )
 
             connection.commit()
 
@@ -139,11 +152,13 @@ class FailureTicketService:
                 """
                 UPDATE Failure_Tickets
                 SET status = ?,
+                    resolution = COALESCE(?, resolution),
                     resolved_at = ?
                 WHERE ticket_id = ?
                 """,
                 (
                     status,
+                    resolution,
                     resolved_at,
                     ticket_id,
                 ),
@@ -154,6 +169,46 @@ class FailureTicketService:
 
             connection.commit()
 
+    def list_tickets(
+        self,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return tickets for the admin board, newest first."""
+        query = """
+            SELECT ticket_id, run_id, graph_name, node_name, error,
+                   status, state_json, resolution, created_at, resolved_at
+            FROM Failure_Tickets
+        """
+        params: tuple[Any, ...] = ()
+
+        if status is not None:
+            query += " WHERE status = ?"
+            params = (status,)
+
+        query += " ORDER BY created_at DESC"
+
+        with self._get_connection() as connection:
+            rows = connection.execute(
+                query,
+                params,
+            ).fetchall()
+
+        return [
+            {
+                "ticket_id": row[0],
+                "run_id": row[1],
+                "graph_name": row[2],
+                "node_name": row[3],
+                "error": row[4],
+                "status": row[5],
+                "state": json.loads(row[6]) if row[6] else None,
+                "resolution": row[7],
+                "created_at": row[8],
+                "resolved_at": row[9],
+            }
+            for row in rows
+        ]
+
     def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         """Return the persisted failure context needed by an administrator."""
 
@@ -161,7 +216,7 @@ class FailureTicketService:
             row = connection.execute(
                 """
                 SELECT ticket_id, run_id, graph_name, node_name, error,
-                       status, state_json, created_at, resolved_at
+                       status, state_json, resolution, created_at, resolved_at
                 FROM Failure_Tickets
                 WHERE ticket_id = ?
                 """,
@@ -179,6 +234,7 @@ class FailureTicketService:
             "error": row[4],
             "status": row[5],
             "state": json.loads(row[6]) if row[6] else None,
-            "created_at": row[7],
-            "resolved_at": row[8],
+            "resolution": row[7],
+            "created_at": row[8],
+            "resolved_at": row[9],
         }

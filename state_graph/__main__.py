@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-
+from langchain_groq import ChatGroq
+from mcp_server import agent_registry
 from state_graph.factory import (
     create_graph1,
     create_state,
@@ -10,8 +11,9 @@ from state_graph.factory import (
 
 def main() -> None:
     run_id = str(uuid.uuid4())
-
-    engine = create_graph1()
+    agent_registry.ensure_agent("state-graph-agent", display_name="state-graph-agent")
+    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+    engine = create_graph1(llm=llm)
 
     state = create_state(
         run_id=run_id,

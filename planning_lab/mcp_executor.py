@@ -10,7 +10,7 @@ from typing import Any
 
 from mcp_server.tools.inventory import update_inventory_quantity
 from mcp_server.tools.reports import generate_sales_audit_report
-
+from mcp_server import agent_registry
 
 READ_ONLY_TOOLS = frozenset({"generate_sales_audit_report"})
 MUTATING_TOOLS = frozenset({"update_inventory_quantity"})
@@ -24,19 +24,22 @@ class MarketLoopMCPExecutor:
         *,
         allow_mutations: bool = False,
         tools: dict[str, Callable[..., Any]] | None = None,
+        agent_id: str = "planning-agent",
     ) -> None:
         self.allow_mutations = allow_mutations
+        self.agent_id = agent_id
         self._tools = tools or {
             "generate_sales_audit_report": generate_sales_audit_report,
             "update_inventory_quantity": update_inventory_quantity,
         }
+        agent_registry.ensure_agent(self.agent_id, display_name=self.agent_id)
 
     def execute(self, tool_name: str, arguments: dict[str, object]) -> str:
         if tool_name not in self._tools:
             raise ValueError(f"Unknown MarketLoop MCP tool: {tool_name}")
-        if tool_name in MUTATING_TOOLS and not self.allow_mutations:
+        if tool_name in agent_registry.get_disabled_tool_names(self.agent_id):
             raise PermissionError(
-                "Planning writes require allow_mutations=True after manager approval."
+                f"Tool '{tool_name}' has been disabled for agent '{self.agent_id}' by an admin."
             )
 
         payload = dict(arguments)

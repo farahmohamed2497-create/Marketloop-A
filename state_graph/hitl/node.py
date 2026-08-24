@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from mcp_server.db import get_connection
 from state_graph.core.models import GraphState, TransitionResult
@@ -16,6 +16,43 @@ class HITLNode:
     transition so the state-graph engine checkpoints the paused state.
     """
 
+    def __init__(self, connection_factory: Callable[[], Any] | None = None) -> None:
+        """``connection_factory`` defaults to the shared MarketLoop DB,
+        matching FailureTicketService/CheckpointStore's constructor
+        shape elsewhere in this package -- lets tests point this at an
+        isolated sqlite file instead of monkeypatching a module import.
+        """
+        self._get_connection = connection_factory or get_connection
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        """Create HITL_Requests if it doesn't exist yet.
+
+        Called eagerly in __init__ (not just inline before each insert)
+        so read-only paths -- get_request(), list_requests(), resolve()
+        on a request that was never created in this DB -- don't 500 with
+        "no such table" on a fresh database; they correctly fall through
+        to "not found" instead.
+        """
+        with self._get_connection() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS HITL_Requests (
+                    request_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    graph_name TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    decision TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMP
+                        DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP
+                )
+                """
+            )
+            connection.commit()
+
     def create_request(
         self,
         *,
@@ -28,7 +65,7 @@ class HITLNode:
 
         request_id = str(uuid.uuid4())
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS HITL_Requests (
@@ -123,7 +160,7 @@ class HITLNode:
     ) -> None:
         """Persist a request using an already-created request ID."""
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS HITL_Requests (
@@ -184,7 +221,7 @@ class HITLNode:
                 "'approve' or 'reject'"
             )
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             connection.execute(
                 """
                 UPDATE HITL_Requests
@@ -201,13 +238,54 @@ class HITLNode:
 
             connection.commit()
 
+    def list_requests(
+        self,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Every HITL request, optionally filtered by status, newest first.
+
+        Used by the admin platform's HITL inbox to show pending
+        human-review tasks across all three graphs.
+        """
+        if status is not None and status not in {"pending", "resolved"}:
+            raise ValueError(f"Unsupported HITL request status: {status}")
+
+        query = """
+            SELECT request_id, run_id, graph_name, reason, state,
+                   decision, status, created_at, resolved_at
+            FROM HITL_Requests
+        """
+        params: tuple[Any, ...] = ()
+        if status is not None:
+            query += " WHERE status = ?"
+            params = (status,)
+        query += " ORDER BY created_at DESC"
+
+        with self._get_connection() as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            {
+                "request_id": row[0],
+                "run_id": row[1],
+                "graph_name": row[2],
+                "reason": row[3],
+                "state": json.loads(row[4]),
+                "decision": row[5],
+                "status": row[6],
+                "created_at": row[7],
+                "resolved_at": row[8],
+            }
+            for row in rows
+        ]
+
     def get_request(
         self,
         request_id: str,
     ) -> dict[str, Any] | None:
         """Return one HITL request and its persisted state."""
 
-        with get_connection() as connection:
+        with self._get_connection() as connection:
             row = connection.execute(
                 """
                 SELECT

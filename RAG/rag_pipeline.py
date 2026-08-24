@@ -33,6 +33,13 @@ _naive: NaiveRAGRetriever | None = None
 _hybrid: HybridSearch | None = None
 _agentic: AgenticRAGRetriever | None = None
 
+# Tracks which Rag_Store_Meta.version this process's in-memory stores were
+# loaded from. Compared on every retrieval call so an admin's document
+# add/remove (which bumps that version in the shared DB — see
+# rag.document_store.RagDocumentStore) reaches this process on its very
+# next query instead of only after a restart.
+_loaded_store_version: int | None = None
+
 
 class _RenamingUnpickler(pickle.Unpickler):
     """Load keyword-store pickles created before package-name normalization."""
@@ -44,16 +51,47 @@ class _RenamingUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
+def _current_store_version() -> int | None:
+    """The shared Rag_Store_Meta.version, or None if it can't be read
+    (e.g. the admin schema hasn't been created yet in this environment).
+    Never raises — a stale-cache check is a nice-to-have, not something
+    that should block answering a query.
+    """
+    try:
+        from rag.document_store import RagDocumentStore
+
+        return RagDocumentStore().get_version()
+    except Exception:
+        return None
+
+
+def _ensure_fresh_stores() -> None:
+    """Force a reload on the next _load_stores() call if an admin has
+    added or removed a document since these stores were last loaded."""
+    global _loaded_store_version, _embedder, _naive, _hybrid, _agentic
+
+    current_version = _current_store_version()
+    if current_version is None:
+        return
+
+    if _loaded_store_version is not None and current_version != _loaded_store_version:
+        _embedder = None
+        _naive = None
+        _hybrid = None
+        _agentic = None
+
+
 def _load_stores() -> tuple[EmbeddingModel, NaiveRAGRetriever, HybridSearch, AgenticRAGRetriever]:
     """Load local indexes only when a real, non-test request needs them."""
     from rag.vector_store import VectorStore
 
-    
-    global _embedder, _naive, _hybrid, _agentic
+
+    global _embedder, _naive, _hybrid, _agentic, _loaded_store_version
 
     if _embedder is not None and _naive is not None and _hybrid is not None and _agentic is not None:
         return _embedder, _naive, _hybrid, _agentic
 
+    _loaded_store_version = _current_store_version()
     embedder = EmbeddingModel()
     vector_store = VectorStore.load(str(PROJECT_ROOT / "data" / "marketloop_vector_db"))
     with (PROJECT_ROOT / "data" / "keyword_store.pkl").open("rb") as handle:
@@ -111,6 +149,7 @@ Answer:
 def answer_with_naive(query: str, top_k: int = 3) -> dict[str, Any]:
     """Single-round vector baseline plus the same verification steps as Hybrid."""
     global _naive
+    _ensure_fresh_stores()
     if _naive is None:
         _load_stores()
     assert _naive is not None
@@ -155,6 +194,7 @@ def answer_with_naive(query: str, top_k: int = 3) -> dict[str, Any]:
 def answer_with_hybrid(query: str, top_k: int = 3) -> dict[str, Any]:
     """Hybrid retrieval (vector + BM25), generation, and Self-RAG checks."""
     global _embedder, _hybrid
+    _ensure_fresh_stores()
     if _embedder is None or _hybrid is None:
         _load_stores()
     assert _embedder is not None and _hybrid is not None
@@ -207,11 +247,12 @@ def answer_with_grounded_reflection(query: str, top_k: int = 3) -> dict[str, Any
     than importing an absent parallel implementation.
     """
     return answer_with_hybrid(query, top_k=top_k)
- 
- 
+
+
 def answer_with_agentic(query: str) -> dict[str, Any]:
     """Agentic retrieval, generation, and Self-RAG support verification."""
     global _agentic
+    _ensure_fresh_stores()
     if _agentic is None:
         _load_stores()
     assert _agentic is not None

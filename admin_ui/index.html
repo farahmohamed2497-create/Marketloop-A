@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MarketLoop Admin — Agents & Tools</title>
+<style>
+  :root {
+    --ink: #14181f;
+    --ink-soft: #5b6472;
+    --line: #e4e7ec;
+    --surface: #ffffff;
+    --canvas: #f4f5f7;
+    --accent: #2952e3;
+    --accent-soft: #eaefff;
+    --good: #1b7a43;
+    --good-soft: #e7f6ed;
+    --bad: #b3261e;
+    --bad-soft: #fdecea;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+  }
+  header {
+    background: var(--ink);
+    color: #fff;
+    padding: 1.1rem 1.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+  header h1 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.01em; }
+  header span { color: #9aa4b5; font-size: 0.85rem; }
+
+  main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem;
+  }
+  .panel h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin: 0 0 0.75rem;
+  }
+
+  /* Agent list */
+  .agent-item {
+    padding: 0.65rem 0.7rem;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 0.3rem;
+    border: 1px solid transparent;
+  }
+  .agent-item:hover { background: var(--canvas); }
+  .agent-item.active { background: var(--accent-soft); border-color: var(--accent); }
+  .agent-item .name { font-weight: 600; font-size: 0.92rem; }
+  .agent-item .meta { display: block; color: var(--ink-soft); font-size: 0.78rem; margin-top: 0.1rem; }
+
+  /* Tools panel */
+  .tools-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+  }
+  .tools-header h2 { margin: 0; text-transform: none; font-size: 1rem; color: var(--ink); letter-spacing: normal; }
+
+  .tool-group { margin-bottom: 1.1rem; }
+  .tool-group-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin-bottom: 0.4rem;
+  }
+  .tool-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 0.6rem;
+    border-radius: 8px;
+    margin-bottom: 0.25rem;
+  }
+  .tool-row.enabled { background: var(--good-soft); }
+  .tool-row.disabled { background: var(--canvas); }
+  .tool-row .tool-name { font-family: "Cascadia Code", Consolas, monospace; font-size: 0.85rem; }
+
+  button.action {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.action:hover { border-color: var(--ink-soft); }
+  button.remove { color: var(--bad); }
+  button.remove:hover { background: var(--bad-soft); border-color: var(--bad); }
+  button.add { color: var(--good); }
+  button.add:hover { background: var(--good-soft); border-color: var(--good); }
+  button.action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* States */
+  .state { padding: 1.1rem 0.5rem; color: var(--ink-soft); font-size: 0.88rem; }
+  .state.error { color: var(--bad); }
+  .state .retry {
+    display: inline-block;
+    margin-top: 0.5rem;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 0.85rem;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 0.4rem;
+    vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    background: var(--ink);
+    color: #fff;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { background: var(--bad); }
+
+  /* Tabs */
+  nav.tabs {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.75rem 1.5rem 0;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  .tab {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border-radius: 8px 8px 0 0;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: none;
+  }
+  .tab.active { color: var(--accent); background: var(--canvas); border-color: var(--line); }
+
+  .tab-panel.single-col { grid-template-columns: 1fr; max-width: 1080px; }
+
+  /* RAG upload form */
+  .upload-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--canvas);
+    border-radius: 8px;
+  }
+  .upload-form input, .upload-form textarea {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    resize: vertical;
+  }
+  .upload-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+  .doc-row, .hitl-row, .ticket-card {
+    padding: 0.7rem 0.8rem;
+    border-radius: 8px;
+    background: var(--canvas);
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--line);
+  }
+  .doc-row { display: flex; align-items: center; justify-content: space-between; }
+  .doc-row .doc-name { font-weight: 600; font-size: 0.88rem; }
+  .doc-row .doc-meta { color: var(--ink-soft); font-size: 0.78rem; display: block; margin-top: 0.15rem; }
+
+  .hitl-row .hitl-reason { font-size: 0.88rem; margin-bottom: 0.4rem; }
+  .hitl-row .hitl-meta { color: var(--ink-soft); font-size: 0.78rem; margin-bottom: 0.5rem; }
+  .hitl-row .hitl-state {
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    max-height: 140px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .hitl-actions { display: flex; gap: 0.5rem; }
+  button.action.approve { color: var(--good); border-color: var(--good); }
+  button.action.approve:hover { background: var(--good-soft); }
+  button.action.reject { color: var(--bad); border-color: var(--bad); }
+  button.action.reject:hover { background: var(--bad-soft); }
+
+  .ticket-board { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+  @media (max-width: 900px) { .ticket-board { grid-template-columns: 1fr; } }
+  .ticket-column-label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-soft); margin-bottom: 0.5rem;
+  }
+  .ticket-card .ticket-error { font-size: 0.85rem; margin-bottom: 0.35rem; }
+  .ticket-card .ticket-meta { color: var(--ink-soft); font-size: 0.76rem; margin-bottom: 0.5rem; }
+  .ticket-card .ticket-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .ticket-card .ticket-state {
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 0.72rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.5rem;
+    margin-top: 0.4rem;
+    max-height: 140px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .ticket-card .toggle-state {
+    background: none; border: none; color: var(--accent);
+    font-size: 0.76rem; padding: 0; cursor: pointer; text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MarketLoop Admin</h1>
+  <span>Agent &amp; tool management</span>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="agents">Agents &amp; Tools</button>
+  <button class="tab" data-tab="rag">RAG Documents</button>
+  <button class="tab" data-tab="hitl">HITL Inbox</button>
+  <button class="tab" data-tab="tickets">Tickets</button>
+</nav>
+
+<main id="tab-agents" class="tab-panel">
+  <section class="panel">
+    <h2>Agents</h2>
+    <div id="agent-list"><div class="state"><span class="spinner"></span>Loading agents…</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="tools-header">
+      <h2 id="tools-title">Select an agent</h2>
+    </div>
+    <div id="tool-list"><div class="state">Pick an agent on the left to manage its tools.</div></div>
+  </section>
+</main>
+
+<main id="tab-rag" class="tab-panel single-col" hidden>
+  <section class="panel">
+    <div class="tools-header">
+      <h2 id="rag-title">RAG documents</h2>
+      <button class="action add" id="rag-upload-btn">Add document</button>
+    </div>
+    <div id="rag-upload-form" class="upload-form" hidden>
+      <input type="text" id="rag-filename" placeholder="Filename (e.g. return_policy.txt)" />
+      <textarea id="rag-text" rows="6" placeholder="Paste the document text here…"></textarea>
+      <div class="upload-actions">
+        <button class="action" id="rag-cancel-btn">Cancel</button>
+        <button class="action add" id="rag-submit-btn">Index document</button>
+      </div>
+    </div>
+    <div id="rag-doc-list"><div class="state"><span class="spinner"></span>Loading documents…</div></div>
+  </section>
+</main>
+
+<main id="tab-hitl" class="tab-panel single-col" hidden>
+  <section class="panel">
+    <h2>Pending human-in-the-loop requests</h2>
+    <div id="hitl-list"><div class="state"><span class="spinner"></span>Loading…</div></div>
+  </section>
+</main>
+
+<main id="tab-tickets" class="tab-panel single-col" hidden>
+  <section class="panel">
+    <h2>Failure tickets</h2>
+    <div class="ticket-board" id="ticket-board">
+      <div class="ticket-column">
+        <div class="ticket-column-label">Open</div>
+        <div id="tickets-open" class="ticket-column-body"></div>
+      </div>
+      <div class="ticket-column">
+        <div class="ticket-column-label">Investigating</div>
+        <div id="tickets-investigating" class="ticket-column-body"></div>
+      </div>
+      <div class="ticket-column">
+        <div class="ticket-column-label">Resolved</div>
+        <div id="tickets-resolved" class="ticket-column-body"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  const API_BASE = "http://localhost:8001";
+  let selectedAgentId = null;
+  let selectedAgentName = null;
+
+  function showToast(message, isError) {
+    const toast = document.getElementById("toast");
+    toast.textContent = message;
+    toast.className = "toast show" + (isError ? " error" : "");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { toast.className = "toast"; }, 3200);
+  }
+
+  async function loadAgents() {
+    const listEl = document.getElementById("agent-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading agents…</div>`;
+
+    let agents;
+    try {
+      const res = await fetch(`${API_BASE}/api/agents`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      agents = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="state error">
+          Couldn't reach the admin API. Is it running on :8001?
+          <br><span class="retry" onclick="loadAgents()">Try again</span>
+        </div>`;
+      return;
+    }
+
+    if (!agents.length) {
+      listEl.innerHTML = `<div class="state">No agents have connected yet. Start an agent process to see it here.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const agent of agents) {
+      const el = document.createElement("div");
+      el.className = "agent-item" + (agent.agent_id === selectedAgentId ? " active" : "");
+      const disabledNote = agent.disabled_tool_count
+        ? `${agent.disabled_tool_count} tool(s) removed`
+        : "all tools available";
+      el.innerHTML = `<span class="name">${agent.display_name}</span><span class="meta">${agent.agent_id} · ${disabledNote}</span>`;
+      el.onclick = () => selectAgent(agent.agent_id, agent.display_name);
+      listEl.appendChild(el);
+    }
+  }
+
+  async function selectAgent(agentId, displayName) {
+    selectedAgentId = agentId;
+    selectedAgentName = displayName;
+    document.getElementById("tools-title").textContent = `Tools — ${displayName}`;
+    highlightSelectedAgent();
+    await loadTools(agentId);
+  }
+
+  function highlightSelectedAgent() {
+    document.querySelectorAll(".agent-item").forEach((el) => {
+      el.classList.toggle("active", el.querySelector(".meta")?.textContent.startsWith(selectedAgentId));
+    });
+  }
+
+  async function loadTools(agentId) {
+    const listEl = document.getElementById("tool-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading tools…</div>`;
+
+    let tools;
+    try {
+      const res = await fetch(`${API_BASE}/api/agents/${agentId}/tools`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      tools = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="state error">
+          Couldn't load tools for this agent.
+          <br><span class="retry" onclick="loadTools('${agentId}')">Try again</span>
+        </div>`;
+      return;
+    }
+
+    if (!tools.length) {
+      listEl.innerHTML = `<div class="state">No tools are registered on the server yet.</div>`;
+      return;
+    }
+
+    const enabled = tools.filter((t) => t.enabled);
+    const disabled = tools.filter((t) => !t.enabled);
+
+    listEl.innerHTML = "";
+
+    listEl.appendChild(renderGroup(
+      `Available to this agent (${enabled.length})`,
+      enabled,
+      "remove",
+      "Remove",
+      false
+    ));
+
+    listEl.appendChild(renderGroup(
+      `Removed from this agent (${disabled.length})`,
+      disabled,
+      "add",
+      "Add",
+      true
+    ));
+
+    if (!enabled.length) {
+      const warn = document.createElement("div");
+      warn.className = "state error";
+      warn.textContent = "This agent currently has no tools available — it can't call anything.";
+      listEl.prepend(warn);
+    }
+  }
+
+  function renderGroup(label, tools, actionClass, actionLabel, nextEnabledState) {
+    const group = document.createElement("div");
+    group.className = "tool-group";
+
+    const heading = document.createElement("div");
+    heading.className = "tool-group-label";
+    heading.textContent = label;
+    group.appendChild(heading);
+
+    if (!tools.length) {
+      const empty = document.createElement("div");
+      empty.className = "state";
+      empty.style.padding = "0.3rem 0.6rem";
+      empty.textContent = nextEnabledState ? "Nothing removed." : "Nothing available.";
+      group.appendChild(empty);
+      return group;
+    }
+
+    for (const tool of tools) {
+      const row = document.createElement("div");
+      row.className = "tool-row " + (nextEnabledState ? "disabled" : "enabled");
+      row.innerHTML = `
+        <span class="tool-name">${tool.tool_name}</span>
+        <button class="action ${actionClass}" data-tool="${tool.tool_name}" data-enable="${nextEnabledState}">
+          ${actionLabel}
+        </button>
+      `;
+      row.querySelector("button").addEventListener("click", onToolAction);
+      group.appendChild(row);
+    }
+    return group;
+  }
+
+  async function onToolAction(event) {
+    const btn = event.currentTarget;
+    const toolName = btn.dataset.tool;
+    const enable = btn.dataset.enable === "true";
+
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = "…";
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/agents/${selectedAgentId}/tools/${toolName}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: enable }),
+        }
+      );
+      if (!res.ok) throw new Error(await res.text());
+
+      showToast(`${toolName} ${enable ? "added to" : "removed from"} ${selectedAgentName}.`, false);
+      await loadTools(selectedAgentId);
+      await loadAgents();
+      highlightSelectedAgent();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      showToast(`Couldn't update ${toolName}. ${err.message}`, true);
+    }
+  }
+
+  loadAgents();
+
+  // ------------------------------------------------------------------
+  // Tabs
+  // ------------------------------------------------------------------
+  const TAB_LOADERS = {
+    agents: () => {},
+    rag: loadRagDocuments,
+    hitl: loadHitlTasks,
+    tickets: loadTickets,
+  };
+
+  document.querySelectorAll(".tab").forEach((tabBtn) => {
+    tabBtn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tabBtn));
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.hidden = panel.id !== `tab-${tabBtn.dataset.tab}`;
+      });
+      TAB_LOADERS[tabBtn.dataset.tab]();
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // RAG documents
+  // ------------------------------------------------------------------
+  async function loadRagDocuments() {
+    const listEl = document.getElementById("rag-doc-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading documents…</div>`;
+
+    let docs;
+    try {
+      const res = await fetch(`${API_BASE}/api/rag/documents`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      docs = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `<div class="state error">Couldn't load RAG documents.
+        <br><span class="retry" onclick="loadRagDocuments()">Try again</span></div>`;
+      return;
+    }
+
+    if (!docs.length) {
+      listEl.innerHTML = `<div class="state">No documents indexed yet. Add one to get started.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const doc of docs) {
+      const row = document.createElement("div");
+      row.className = "doc-row";
+      row.innerHTML = `
+        <div>
+          <span class="doc-name">${doc.filename}</span>
+          <span class="doc-meta">${doc.chunk_count} chunk(s) · added ${new Date(doc.added_at).toLocaleString()}</span>
+        </div>
+        <button class="action remove" data-id="${doc.document_id}">Remove</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => removeRagDocument(doc.document_id, doc.filename));
+      listEl.appendChild(row);
+    }
+  }
+
+  async function removeRagDocument(documentId, filename) {
+    try {
+      const res = await fetch(`${API_BASE}/api/rag/documents/${documentId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      showToast(`Removed "${filename}" — the RAG agent stops using it on its next query.`, false);
+      await loadRagDocuments();
+    } catch (err) {
+      showToast(`Couldn't remove ${filename}. ${err.message}`, true);
+    }
+  }
+
+  document.getElementById("rag-upload-btn").addEventListener("click", () => {
+    document.getElementById("rag-upload-form").hidden = false;
+  });
+  document.getElementById("rag-cancel-btn").addEventListener("click", () => {
+    document.getElementById("rag-upload-form").hidden = true;
+  });
+  document.getElementById("rag-submit-btn").addEventListener("click", async () => {
+    const filename = document.getElementById("rag-filename").value.trim();
+    const text = document.getElementById("rag-text").value.trim();
+    if (!filename || !text) {
+      showToast("Filename and document text are both required.", true);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/rag/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, text }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      document.getElementById("rag-filename").value = "";
+      document.getElementById("rag-text").value = "";
+      document.getElementById("rag-upload-form").hidden = true;
+      showToast(`"${filename}" indexed and available to the RAG agent.`, false);
+      await loadRagDocuments();
+    } catch (err) {
+      showToast(`Couldn't index document. ${err.message}`, true);
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // HITL inbox
+  // ------------------------------------------------------------------
+  async function loadHitlTasks() {
+    const listEl = document.getElementById("hitl-list");
+    listEl.innerHTML = `<div class="state"><span class="spinner"></span>Loading…</div>`;
+
+    let tasks;
+    try {
+      const res = await fetch(`${API_BASE}/api/hitl/tasks?status=pending`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      tasks = await res.json();
+    } catch (err) {
+      listEl.innerHTML = `<div class="state error">Couldn't load HITL tasks.
+        <br><span class="retry" onclick="loadHitlTasks()">Try again</span></div>`;
+      return;
+    }
+
+    if (!tasks.length) {
+      listEl.innerHTML = `<div class="state">Nothing pending — no graph is waiting on a human decision right now.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const task of tasks) {
+      const row = document.createElement("div");
+      row.className = "hitl-row";
+      row.innerHTML = `
+        <div class="hitl-reason"><strong>${task.graph_name}</strong> · run ${task.run_id}</div>
+        <div class="hitl-meta">${task.reason}</div>
+        <pre class="hitl-state">${JSON.stringify(task.state, null, 2)}</pre>
+        <div class="hitl-actions">
+          <button class="action approve">Approve</button>
+          <button class="action reject">Reject</button>
+        </div>
+      `;
+      row.querySelector(".approve").addEventListener("click", () => resolveHitlTask(task.request_id, "approve"));
+      row.querySelector(".reject").addEventListener("click", () => resolveHitlTask(task.request_id, "reject"));
+      listEl.appendChild(row);
+    }
+  }
+
+  async function resolveHitlTask(requestId, decision) {
+    try {
+      const res = await fetch(`${API_BASE}/api/hitl/tasks/${requestId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const result = await res.json();
+      showToast(`Recorded "${decision}" — run resumed, now ${result.status} at ${result.current_node}.`, false);
+      await loadHitlTasks();
+    } catch (err) {
+      showToast(`Couldn't resolve request. ${err.message}`, true);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Failure tickets
+  // ------------------------------------------------------------------
+  async function loadTickets() {
+    const columns = {
+      open: document.getElementById("tickets-open"),
+      investigating: document.getElementById("tickets-investigating"),
+      resolved: document.getElementById("tickets-resolved"),
+    };
+    Object.values(columns).forEach((col) => (col.innerHTML = `<div class="state"><span class="spinner"></span></div>`));
+
+    let tickets;
+    try {
+      const res = await fetch(`${API_BASE}/api/tickets`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      tickets = await res.json();
+    } catch (err) {
+      Object.values(columns).forEach((col) => (col.innerHTML = `<div class="state error">Couldn't load tickets.</div>`));
+      return;
+    }
+
+    Object.values(columns).forEach((col) => (col.innerHTML = ""));
+
+    if (!tickets.length) {
+      columns.open.innerHTML = `<div class="state">No tickets.</div>`;
+      return;
+    }
+
+    for (const ticket of tickets) {
+      const card = document.createElement("div");
+      card.className = "ticket-card";
+      const stateId = `ticket-state-${ticket.ticket_id}`;
+      card.innerHTML = `
+        <div class="ticket-error">${ticket.error}</div>
+        <div class="ticket-meta">${ticket.graph_name} · ${ticket.node_name} · run ${ticket.run_id}</div>
+        <button class="toggle-state" data-target="${stateId}">View checkpoint state</button>
+        <pre class="ticket-state" id="${stateId}" hidden>${JSON.stringify(ticket.state, null, 2)}</pre>
+        <div class="ticket-actions"></div>
+      `;
+      card.querySelector(".toggle-state").addEventListener("click", (e) => {
+        const pre = document.getElementById(stateId);
+        pre.hidden = !pre.hidden;
+        e.target.textContent = pre.hidden ? "View checkpoint state" : "Hide checkpoint state";
+      });
+      const actions = card.querySelector(".ticket-actions");
+
+      if (ticket.status === "open") {
+        const investigateBtn = document.createElement("button");
+        investigateBtn.className = "action";
+        investigateBtn.textContent = "Start investigating";
+        investigateBtn.onclick = () => updateTicket(ticket.ticket_id, "investigating");
+        actions.appendChild(investigateBtn);
+      }
+      if (ticket.status !== "resolved") {
+        const resolveBtn = document.createElement("button");
+        resolveBtn.className = "action add";
+        resolveBtn.textContent = "Mark resolved & resume";
+        resolveBtn.onclick = () => {
+          const resolution = prompt("What fixed it? (used as the ticket's resolution note)");
+          if (resolution !== null) updateTicket(ticket.ticket_id, "resolved", resolution);
+        };
+        actions.appendChild(resolveBtn);
+      }
+
+      columns[ticket.status]?.appendChild(card) ?? columns.open.appendChild(card);
+    }
+  }
+
+  async function updateTicket(ticketId, status, resolution) {
+    try {
+      const res = await fetch(`${API_BASE}/api/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, resolution: resolution ?? null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const result = await res.json();
+      const resumeNote = result.resumed_run
+        ? ` Run resumed from its checkpoint — now ${result.resumed_run.status}.`
+        : "";
+      showToast(`Ticket moved to ${status}.${resumeNote}`, false);
+      await loadTickets();
+    } catch (err) {
+      showToast(`Couldn't update ticket. ${err.message}`, true);
+    }
+  }
+</script>
+
+</body>
+</html>

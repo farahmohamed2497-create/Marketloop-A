@@ -9,7 +9,7 @@ import logging
 import pkgutil
 from types import ModuleType
 from typing import Any, Callable
-
+import os
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
@@ -19,6 +19,7 @@ from planning_lab.mcp_executor import MarketLoopMCPExecutor
 
 from .config import get_database_path, get_transport
 from .db import get_connection
+from . import agent_registry
 from .tools.session import SessionContext, switch_active_user_role
 
 
@@ -52,9 +53,11 @@ class MarketLoopMCPServer:
         self,
         name: str = "marketloop",
         version: str = "0.1.0",
-    ) -> None:
+        agent_id: str = agent_registry.DEFAULT_AGENT_ID,
+          ) -> None:
         self.name = name
         self.version = version
+        self.agent_id = agent_id
         self.transport = get_transport()
 
         self._tools: list[Callable[..., Any]] = []
@@ -119,6 +122,7 @@ class MarketLoopMCPServer:
     def connect(self) -> dict[str, Any]:
         """Prepare the server for a transport connection."""
         self.register_modules()
+        agent_registry.ensure_agent(self.agent_id, display_name=self.agent_id)
 
         connection = get_connection()
         connection.close()
@@ -286,15 +290,23 @@ class MarketLoopMCPServer:
 
             visible_tools.append(tool)
 
-        self._active_tool_names = {
-            getattr(
-                tool,
-                "name",
-                tool.__name__,
+        enabled_names = set(
+            agent_registry.filter_enabled(
+                self.agent_id,
+                [
+                    getattr(tool, "name", tool.__name__)
+                    for tool in visible_tools
+                ],
             )
-            for tool in visible_tools
-        }
+        )
 
+        visible_tools = [
+            tool
+            for tool in visible_tools
+            if getattr(tool, "name", tool.__name__) in enabled_names
+        ]
+
+        self._active_tool_names = enabled_names
         self._visible_tools = visible_tools
 
     def _build_tool(
@@ -870,6 +882,31 @@ class MarketLoopMCPServer:
                 self._server.create_initialization_options(),
             )
 
+    async def _run_streamable_http(self) -> None:
+        import uvicorn
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+        session_manager = StreamableHTTPSessionManager(app=self._server)
+
+        async def asgi_app(scope, receive, send):
+            if scope["type"] == "lifespan":
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                return
+
+            await session_manager.handle_request(scope, receive, send)
+
+        host = "0.0.0.0"
+        port = int(os.getenv("MARKETLOOP_HTTP_PORT", "8000"))
+
+        async with session_manager.run():
+            config = uvicorn.Config(asgi_app, host=host, port=port, log_level="info")
+            uv_server = uvicorn.Server(config)
+            print(f"MarketLoop MCP server listening on http://{host}:{port}/  (streamable-http)")
+            await uv_server.serve()
     def run(self) -> None:
         """Run the server using stdio by default."""
 
@@ -881,15 +918,21 @@ class MarketLoopMCPServer:
             )
             return
 
-        if self.transport in {
-            "streamable-http",
-            "sse",
-        }:
+        if self.transport == "streamable-http":
+            asyncio.run(self._run_streamable_http())
+            return
+
+        if self.transport == "sse":
             raise NotImplementedError(
-                "Remote transport adapters are not implemented yet"
+                "SSE transport is not implemented; use streamable-http instead"
             )
 
 
 if __name__ == "__main__":
-    server = MarketLoopMCPServer()
+    server = MarketLoopMCPServer(
+        agent_id=os.getenv(
+            "MARKETLOOP_AGENT_ID",
+            agent_registry.DEFAULT_AGENT_ID,
+        ),
+    )
     server.run()

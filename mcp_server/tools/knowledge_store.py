@@ -99,6 +99,33 @@ class KeywordStore:
             score += idf * (numerator / denominator)
         return score
 
+    def remove_by_metadata(self, filter: dict[str, Any]) -> int:
+        """Remove every document whose metadata matches ``filter``.
+
+        Rebuilds the metadata index and average-document-length statistic
+        afterward, since both are derived from ``self._docs``. Returns the
+        number of documents removed.
+        """
+        if not filter:
+            return 0
+
+        to_keep: list[_Document] = []
+        removed = 0
+        for doc in self._docs:
+            if _matches_filter(doc.metadata, filter):
+                removed += 1
+            else:
+                to_keep.append(doc)
+
+        if removed:
+            self._docs = to_keep
+            self._recompute_avg_len()
+            self.metadata_index = MetadataIndex()
+            for doc in self._docs:
+                self.metadata_index.add(doc.doc_id, doc.metadata)
+
+        return removed
+
     def query(
         self,
         query_text: str,

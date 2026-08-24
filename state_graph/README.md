@@ -215,6 +215,109 @@ Graph 2 manages shipping and delivery investigations (damaged, missing, or delay
 - **`test_process_kill_resume.py`**: Confirms recovery after hard process termination.
 - **`test_no_reexecution_after_recovery.py`**: Confirms previously completed nodes do not re-run after restart.
 
+##  Platform: RAG Document Management + HITL/Ticket Resolution
+
+```
+ Platform
+├── Backend / Integration
+│   ├── RAG document lifecycle   (admin_api/main.py, RAG/document_store.py)
+│   ├── HITL endpoints           (admin_api/main.py, state_graph/hitl/node.py)
+│   └── Ticket endpoints         (admin_api/main.py, state_graph/tickets/service.py)
+│
+├── Testing
+│   ├── Platform API tests       (tests/platform/, 11 passing)
+│   ├── RAG add/remove E2E       (test_rag_documents.py)
+│   ├── HITL E2E                 (test_hitl_and_tickets.py)
+│   └── Ticket E2E               (test_hitl_and_tickets.py)
+│
+└── UI
+    ├── RAG management           (admin_ui/index.html — "RAG Documents" tab)
+    ├── HITL inbox                (admin_ui/index.html — "HITL Inbox" tab)
+    └── Ticket board              (admin_ui/index.html — "Tickets" tab)
+```
+
+### Backend / Integration
+
+- `GET/POST /api/rag/documents`, `DELETE /api/rag/documents/{id}` — chunk,
+  embed, and index a document into the shared VectorStore + BM25
+  KeywordStore; removal purges both stores and re-checks out on delete.
+  Every mutation bumps `Rag_Store_Meta.version` in the shared DB.
+- `RAG/rag_pipeline.py` checks that version before every `answer_with_*`
+  call and drops its in-memory cache if it's stale — this is what makes
+  an admin's add/remove reach a *running* agent process on its next
+  query, not just after a restart, since the version lives in the DB
+  both processes already read.
+- `GET /api/hitl/tasks`, `GET /api/hitl/tasks/{id}`,
+  `POST /api/hitl/tasks/{id}/resolve` — lists pending human-review
+  requests across all three graphs and records the admin's decision.
+  Resolving calls `state_graph.engine_registry.resume_run(run_id,
+  graph_name)`, which resumes the actual paused run via
+  `StateGraphEngine.resume()`. There is no auto-approve path anywhere —
+  a run only advances because this endpoint was hit.
+- `GET /api/tickets`, `GET /api/tickets/{id}`, `PATCH /api/tickets/{id}`
+  — same resume mechanism for unplanned failures. Moving a ticket to
+  `resolved` resumes the run from its last checkpoint (the exact node
+  it failed on); moving it to `investigating` does not resume anything.
+- `state_graph/engine_registry.py` (new) — maps `graph_name` ("refund" /
+  "shipping" / "dispute") to a live `StateGraphEngine`, built lazily.
+
+**Bugs fixed while wiring this up** (pre-existing, unrelated to F2 scope
+but blocking it):
+- `state_graph/factory.py`: `create_graph1()` referenced
+  `build_graph1/2/3` without importing them and passed `environment=`
+  instead of `llm=` — could not have run.
+- `state_graph/checkpointing/recovery.py`: dead import of a module that
+  doesn't exist (`state_graph.failure_tickets.service`).
+- `state_graph/hitl/node.py`: `HITL_Requests` was only created lazily
+  inside `create_request()`, so a lookup on an ID that was never
+  created threw `sqlite3.OperationalError`. Now created in `__init__`.
+- `RAG/vector_store.py`: `remove_by_metadata()` didn't purge
+  `_id_map`/`_reverse_id_map`, so `.size` kept counting deleted vectors
+  and search crashed after deleting the last live document. Fixed.
+
+### Testing
+
+`tests/platform/` — 11 tests, all passing against the real endpoints,
+real HITLNode/FailureTicketService/RagDocumentStore (isolated per test
+on a throwaway sqlite DB), with only the embedding model and the LLM
+resume call faked:
+
+- add a document → verify the agent retrieves it on its next query
+- remove a document → verify the agent stops retrieving it
+- removing an unknown document → 404
+- a HITL task appears on the platform when a graph pauses
+- an admin resolving a HITL task records the decision and resumes the
+  run
+- resolving an unknown HITL task → 404; an invalid decision → 400 and
+  no resume
+- a ticket appears when a node fails
+- resolving a ticket resumes the run from its checkpoint
+- moving a ticket to "investigating" does **not** resume it
+- resolving an unknown ticket → 404
+
+Still open: the demo clip (recording, not code) showing this working
+live through the UI end to end.
+
+### UI
+
+`admin_ui/index.html` — three new tabs alongside the existing
+Agents & Tools tab:
+
+- **RAG Documents** — list with chunk count + added date, an
+  "Add document" form (filename + text), and a remove action per row.
+- **HITL Inbox** — pending requests with the paused graph's persisted
+  state shown inline, and Approve/Reject buttons that call the real
+  resolve endpoint.
+- **Tickets** — open/investigating/resolved board; each card has a
+  "View checkpoint state" toggle showing the failed run's persisted
+  state, a "Start investigating" action, and a "Mark resolved & resume"
+  action that prompts for a resolution note and resumes the run.
+
+No mock data anywhere — every view reads from and writes to the live
+admin API.
+
+
+
 ## Running the package
 
 From the repository root:

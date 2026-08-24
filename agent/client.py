@@ -41,7 +41,7 @@ import os
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.context import ClientRequestContext
+from mcp.shared.context import RequestContext
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import (
@@ -64,11 +64,7 @@ from rag.self_rag_verification import check_memory_recall
 # ---------------------------------------------------------------------------
 # How to launch the server. Adjust if your teammate's entrypoint differs.
 # ---------------------------------------------------------------------------
-SERVER_PARAMS = StdioServerParameters(
-    command=sys.executable,
-    args=["-u", "-m", "mcp_server.server"],
-    env={**os.environ, "PYTHONUNBUFFERED": "1"},
-)
+
 
 memory_buffer = RollingBuffer(max_turns=10)
 scratchpad = Scratchpad()
@@ -115,7 +111,7 @@ def _read_content_text(content: Any) -> str:
 # (e.g. approving a high-value return, confirming a controlled action).
 # ---------------------------------------------------------------------------
 async def elicitation_callback(
-    context: ClientRequestContext,
+    context: RequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult:
     print("\n" + "=" * 60)
@@ -149,7 +145,7 @@ async def elicitation_callback(
 # (e.g. generating a personalized apology email with sampling/createMessage).
 # ---------------------------------------------------------------------------
 async def sampling_callback(
-    context: ClientRequestContext,
+    context: RequestContext,
     params: CreateMessageRequestParams,
 ) -> CreateMessageResult:
     print("\n" + "=" * 60)
@@ -440,7 +436,13 @@ async def interactive_loop(session: ClientSession, capability_flags: dict[str, A
 
 
 async def main() -> None:
+   
     parser = argparse.ArgumentParser(description="MarketLoop MCP agent client")
+    parser.add_argument(
+        "--agent-id",
+        default=os.getenv("MARKETLOOP_AGENT_ID", "default"),
+        help="Identifies this agent to the admin panel (e.g. rag-agent, planning-agent)",
+    )
     parser.add_argument(
         "--transport",
         choices=["stdio", "http"],
@@ -453,6 +455,11 @@ async def main() -> None:
         help="Streamable HTTP endpoint (used with --transport http)",
     )
     args = parser.parse_args()
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-u", "-m", "mcp_server.server"],
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "MARKETLOOP_AGENT_ID": args.agent_id},
+    )
 
     async def _run_session(reads: Any, writes: Any) -> None:
         async with ClientSession(
@@ -475,7 +482,7 @@ async def main() -> None:
             print("Start the server in Streamable HTTP mode first, or use --transport stdio.")
     else:
         print("Connecting to MarketLoop server over stdio")
-        async with stdio_client(SERVER_PARAMS) as (read, write):
+        async with stdio_client(server_params) as (read, write):
             await _run_session(read, write)
 
 

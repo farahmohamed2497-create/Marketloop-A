@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from planning_lab.algorithms.environment import Environment
 from state_graph.core.models import GraphState
+from state_graph.graph1.graph import build_graph1
+from state_graph.graph2.build import build_graph2
+from state_graph.graph3.graph import build_graph3
 
 
 def create_graph1(
-    environment: Environment | None = None,
+    *,
+    llm,
 ):
+    """Create the Refund graph (LATS + HITL)."""
     return build_graph1(
-        environment=environment,
+        llm=llm,
     )
 
 

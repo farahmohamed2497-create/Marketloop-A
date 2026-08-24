@@ -28,12 +28,9 @@ flake8
 mypy
 
 factory-boy
-engine
-store
-service
-graph
 # Admin platform
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 python-multipart>=0.0.9,<1
 pypdf>=5,<7
+httpx>=0.27,<1

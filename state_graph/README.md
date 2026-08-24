@@ -16,11 +16,20 @@ Handles returns that may require:
 
 LLM additions:
 
-1. Task Decomposition
+1. LATS
 2. RAG / Policy Grounding
 
 The graph can pause while waiting for the return and can pause for
 human approval when a return exceeds the configured amount threshold.
+
+### Why Graph 1 needs a cycle
+
+After policy grounding and LATS select a safe refund path, the graph moves to
+`awaiting_return` until the warehouse records that the item arrived. That is
+an external event, not an LLM decision. The receipt loops back to
+`evaluate_refund` so the existing decision can be finalized without rerunning
+LATS or retrieving policy evidence. This avoids duplicate decisions after a
+long wait or process restart.
 
 ---
 

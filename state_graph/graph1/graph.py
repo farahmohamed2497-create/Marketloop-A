@@ -22,9 +22,13 @@ def build_graph1(
     transitions = TransitionTable()
 
     transitions.add(
-        "awaiting_input",
-        "lats",
+        "awaiting_input", "policy_grounding",
     )
+    transitions.add("policy_grounding", "lats")
+    transitions.add("lats", "evaluate_refund")
+    transitions.add("evaluate_refund", "awaiting_return")
+    transitions.add("evaluate_refund", "done")
+    transitions.add("awaiting_return", "evaluate_refund")
 
     return StateGraphEngine(
         transitions=transitions,

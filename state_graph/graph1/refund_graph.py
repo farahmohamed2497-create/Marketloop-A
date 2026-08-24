@@ -42,7 +42,23 @@ class RefundGraph:
             )
 
         return TransitionResult(
+            next_node="policy_grounding",
+        )
+
+    def policy_grounding(self, state: GraphState) -> TransitionResult:
+        """RAG addition: retrieve the return policy before selecting a refund.
+
+        The retrieved answer is persisted so LATS and a later human reviewer
+        make the same decision from the same policy evidence after recovery.
+        """
+        from rag.rag_pipeline import answer_with_hybrid
+
+        retrieval = answer_with_hybrid(
+            f"Return/refund policy evidence needed for this request: {state.goal}"
+        )
+        return TransitionResult(
             next_node="lats",
+            updates={"data": {**state.data, "policy_context": retrieval["answer"]}},
         )
 
     def lats_node(
@@ -52,7 +68,7 @@ class RefundGraph:
         """Run LATS and route to HITL when policy requires human review."""
 
         result = lats(
-            task=state.goal,
+            task=f"{state.goal}\n\nRelevant company policy:\n{state.data.get('policy_context', '')}",
             llm=self.llm,
             environment=self.environment,
         )
@@ -105,8 +121,27 @@ class RefundGraph:
             },
         )
 
+    def evaluate_refund(self, state: GraphState) -> TransitionResult:
+        """Wait for the physical return before the refund can be finalized."""
+        if not state.data.get("return_received", False):
+            return TransitionResult(next_node="awaiting_return", status="waiting")
+        return TransitionResult(
+            next_node="done",
+            status="done",
+            updates={"outputs": {**state.outputs, "resolution": "Refund approved after return inspection."}},
+        )
+
+    def awaiting_return(self, state: GraphState) -> TransitionResult:
+        """External warehouse receipt loops back to evaluation, never to LATS."""
+        if not state.data.get("return_received", False):
+            return TransitionResult(next_node="awaiting_return", status="waiting")
+        return TransitionResult(next_node="evaluate_refund")
+
     def nodes(self) -> dict[str, Any]:
         return {
             "awaiting_input": self.awaiting_input,
+            "policy_grounding": self.policy_grounding,
             "lats": self.lats_node,
+            "evaluate_refund": self.evaluate_refund,
+            "awaiting_return": self.awaiting_return,
         }
